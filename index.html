@@ -739,10 +739,18 @@ textarea{resize:none;min-height:60px}
         <span id="sess-tag" style="color:var(--gr);font-size:.7rem"></span>
       </div>
 
-      <!-- Toggle QR / OCR (aparece só pra SPI) -->
-      <div class="mode-toggle" id="mode-toggle" style="display:none">
+      <!-- Toggle QR / OCR (aparece para todos os fornecedores) -->
+      <div class="mode-toggle" id="mode-toggle" style="display:flex">
         <button class="mode-btn active" id="btn-mode-qr"  onclick="setMode('qr')">&#9654; QR Code</button>
         <button class="mode-btn"        id="btn-mode-ocr" onclick="setMode('ocr')">&#9632; OCR Etiqueta</button>
+      </div>
+
+      <!-- Seletor de fornecedor para OCR (aparece só no modo OCR) -->
+      <div id="ocr-forn-row" style="display:none;margin-bottom:8px">
+        <label style="font-size:.54rem;color:var(--mu2);letter-spacing:1px;text-transform:uppercase;margin-bottom:3px;display:block">Fornecedor / Parser OCR</label>
+        <select id="ocr-forn-select" style="margin-bottom:0;font-size:.8rem;padding:9px 12px;background:var(--bg);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);width:100%;font-family:var(--F)">
+          <option value="SPI">SPI (padrão)</option>
+        </select>
       </div>
 
       <div id="cam-wrap">
@@ -1853,7 +1861,8 @@ function _applyFornBadges(forn){
   const customCfg = fornFindByName(forn);
   document.getElementById('lp-badge').style.display  = isLP(forn)?'block':'none';
   document.getElementById('spi-badge').style.display = isSPI(forn)?'block':'none';
-  document.getElementById('mode-toggle').style.display = isSPI(forn)?'flex':'none';
+  // Toggle QR/OCR sempre visível
+  document.getElementById('mode-toggle').style.display = 'flex';
   if(isSPI(forn)) setMode('ocr'); else setMode('qr');
   // Mostrar badge customizado se for fornecedor cadastrado
   const custBadge = document.getElementById('cust-badge');
@@ -1865,6 +1874,22 @@ function _applyFornBadges(forn){
       custBadge.style.display='none';
     }
   }
+  // Popular o select de fornecedor OCR
+  _populateOcrFornSelect(forn);
+}
+
+function _populateOcrFornSelect(currentForn){
+  const sel = document.getElementById('ocr-forn-select');
+  if(!sel) return;
+  const forn = fornLoad();
+  // Opções: SPI (built-in) + todos os cadastrados
+  const options = [
+    { value:'SPI', label:'SPI (padrão built-in)' },
+    ...forn.map(f=>({ value:f.nome, label:f.nome + ' (' + (f.tipo||'genérico') + ')' }))
+  ];
+  sel.innerHTML = options.map(o =>
+    `<option value="${h_(o.value)}"${o.value===currentForn?' selected':''}>${h_(o.label)}</option>`
+  ).join('');
 }
 
 function sessStart(){
@@ -1873,6 +1898,7 @@ function sessStart(){
   const nf = document.getElementById('inp-nf').value.trim();
   session = { forn, nf, start: new Date().toLocaleString('pt-BR') };
   _applyFornBadges(forn);
+  _populateOcrFornSelect(forn);
   document.getElementById('sess-tag').textContent    = forn.toUpperCase();
   document.getElementById('card-sess').style.display   = 'none';
   document.getElementById('card-cam').style.display    = 'block';
@@ -2346,31 +2372,49 @@ async function ocrCapture(silent=false){
     rawBox.textContent = fullText.trim().slice(0, 300);
     rawBox.classList.add('on');
 
-    const result = parseSPI(fullText);
-    if(result){
+    // Determinar fornecedor selecionado no OCR
+    const ocrFornSel = document.getElementById('ocr-forn-select');
+    const ocrForn = (ocrFornSel ? ocrFornSel.value.trim() : '') || 'SPI';
+
+    // Executar o parser correto
+    let ocrParsed = null;
+    if(ocrForn === 'SPI'){
+      const spiRes = parseSPI(fullText);
+      if(spiRes) ocrParsed = { ref: spiRes.ref, qty: spiRes.qty, forn: 'SPI' };
+    } else {
+      const customCfg = fornFindByName(ocrForn);
+      if(customCfg && customCfg.tipo !== 'generico'){
+        // Tenta o texto completo e cada linha individualmente
+        const candidates = [fullText, ...fullText.split('\n').map(l=>l.trim()).filter(Boolean)];
+        for(const seg of candidates){
+          const c = parseCustomForn(seg, customCfg);
+          if(c && c.ref){ ocrParsed = { ref: c.ref, qty: c.qty, forn: ocrForn }; break; }
+        }
+      }
+      // Fallback genérico
+      if(!ocrParsed){
+        const g = parseGeneric(fullText);
+        if(g && g.ref && g.ref !== fullText.trim()) ocrParsed = { ref: g.ref, qty: g.qty, forn: ocrForn };
+      }
+    }
+
+    if(ocrParsed){
       _lastOcrTs = Date.now();
       readCnt++;
       document.getElementById('cam-cnt').textContent = readCnt+' lidos';
-      handleQR(`SPI_OCR|${result.ref}|${result.qty}|SPI`);
+      handleQR(`SPI_OCR|${ocrParsed.ref}|${ocrParsed.qty}|${ocrParsed.forn}`);
       _ocrLoopStop();
       _ocrCountdownStop();
       setSt('Etiqueta lida — confirme ou cancele','ok');
-      if(!silent) toast(`SPI: ${result.ref} · ${result.qty} pç`,'ok');
+      if(!silent) toast(`${ocrParsed.forn}: ${ocrParsed.ref} · ${ocrParsed.qty} pç`);
       doFlash();
     } else {
-      const flatNorm = fullText.replace(/\s/g,'').replace(/[Oo]/g,'0').replace(/[Il|\/\\]/g,'1');
-      const hasRef = /[1](\d{10,13})[A-Za-z]/i.test(flatNorm);
-      const hasQtd = /[Qq][Tt][Dd]/i.test(fullText);
-      const hasBigNum = /\b\d{1,4}\b/.test(fullText);
+      const hasText = fullText.trim().length > 5;
       if(!silent){
-        let hint = 'Padrão SPI não detectado';
-        if(!hasRef && !hasQtd) hint += ' — etiqueta não visível ou fora do foco';
-        else if(!hasRef)       hint += ` — ref I+dígitos+letra não encontrada`;
-        else if(!hasQtd && !hasBigNum) hint += ' — quantidade não encontrada';
-        setSt(hint,'err');
+        setSt(`Padrão "${ocrForn}" não detectado — centralize a etiqueta`,'err');
         toast('Centralize a etiqueta e tente novamente',true);
       } else {
-        setSt(hasRef?'⟳ Qtd não encontrada…':hasQtd||hasBigNum?'⟳ Ref não encontrada…':'⟳ Aguardando etiqueta…','wa');
+        setSt(hasText?`⟳ Aguardando padrão ${ocrForn}…`:'⟳ Aguardando etiqueta…','wa');
       }
     }
   }catch(e){
@@ -2402,8 +2446,10 @@ function setMode(mode){
   _scanMode = mode;
   document.getElementById('btn-mode-qr').classList.toggle('active', mode==='qr');
   document.getElementById('btn-mode-ocr').classList.toggle('active', mode==='ocr');
-  document.getElementById('cam-mode-label').textContent = mode==='ocr' ? 'OCR Auto · SPI' : 'Leitura QR';
+  document.getElementById('cam-mode-label').textContent = mode==='ocr' ? 'OCR Auto' : 'Leitura QR';
   document.getElementById('ocr-capture-row').style.display = mode==='ocr' ? 'block' : 'none';
+  const ocRfornRow = document.getElementById('ocr-forn-row');
+  if(ocRfornRow) ocRfornRow.style.display = mode==='ocr' ? 'block' : 'none';
   if(mode==='ocr'){
     if(camOn) _ocrLoopStart();
   } else {
