@@ -3588,84 +3588,80 @@ function aiFieldFlash(id){
 
 /* ── Aplicar JSON de atualização da IA nos campos ── */
 function aiChatApplyUpdate(update){
-  if(!update) return;
+  if(!update) return [];
   const { tipo, config, testRaw, nome } = update;
   const changedFields = [];
 
   // Nome
-  if(nome && nome !== '(sem nome)'){
+  if(nome && nome !== 'null' && nome !== null){
     const nomeEl = document.getElementById('fn-nome');
-    if(nomeEl){ nomeEl.value = nome.toUpperCase(); aiFieldFlash('fn-nome'); changedFields.push('Nome'); }
+    if(nomeEl){ nomeEl.value = String(nome).toUpperCase(); aiFieldFlash('fn-nome'); changedFields.push('Nome: ' + nome.toUpperCase()); }
   }
 
-  // Tipo de parser
-  if(tipo && tipo !== 'null'){
+  // Tipo de parser — muda ANTES de preencher config
+  if(tipo && tipo !== 'null' && tipo !== null){
     const tipoEl = document.getElementById('fn-tipo');
-    if(tipoEl && tipoEl.value !== tipo){
+    if(tipoEl){
       tipoEl.value = tipo;
-      fornTipoChange();
-      changedFields.push('Tipo de parser → ' + tipo.toUpperCase());
+      fornTipoChange();   // mostra a seção correta
+      changedFields.push('Parser → ' + tipo.toUpperCase());
     }
   }
 
-  // Configs
-  if(config){
+  // Preencher config após garantir que a seção está visível
+  function fillConfig(){
+    if(!config || typeof config !== 'object') return;
     const c = config;
     const t = document.getElementById('fn-tipo').value;
 
+    function setField(id, val, label){
+      if(val === undefined || val === null) return;
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.value = val;
+      aiFieldFlash(id);
+      if(label) changedFields.push(label + ': ' + val);
+    }
+
     if(t === 'regex'){
-      if(c.refRegex !== undefined && c.refRegex !== null){
-        document.getElementById('fn-ref-regex').value = c.refRegex;
-        aiFieldFlash('fn-ref-regex');
-        changedFields.push('Regex Referência: `' + c.refRegex + '`');
-      }
-      if(c.qtyRegex !== undefined && c.qtyRegex !== null){
-        document.getElementById('fn-qty-regex').value = c.qtyRegex;
-        aiFieldFlash('fn-qty-regex');
-        changedFields.push('Regex Quantidade: `' + c.qtyRegex + '`');
-      }
-      if(c.qtyDiv !== undefined && c.qtyDiv !== null){
-        document.getElementById('fn-qty-div').value = c.qtyDiv;
-        aiFieldFlash('fn-qty-div');
-        if(String(c.qtyDiv) !== '1') changedFields.push('Divisor: ' + c.qtyDiv);
-      }
-      if(c.refStrip !== undefined && c.refStrip !== null){
-        document.getElementById('fn-ref-strip').value = c.refStrip;
-        aiFieldFlash('fn-ref-strip');
-        if(c.refStrip) changedFields.push('Remover prefixo: "' + c.refStrip + '"');
-      }
+      setField('fn-ref-regex', c.refRegex, 'Regex Ref');
+      setField('fn-qty-regex', c.qtyRegex, 'Regex Qtd');
+      setField('fn-qty-div',   c.qtyDiv,   c.qtyDiv && String(c.qtyDiv) !== '1' ? 'Divisor' : null);
+      setField('fn-ref-strip', c.refStrip, c.refStrip ? 'Remover prefixo' : null);
     } else if(t === 'pipe'){
-      if(c.pipeSep  !== undefined){ document.getElementById('fn-pipe-sep').value  = c.pipeSep;  aiFieldFlash('fn-pipe-sep');  changedFields.push('Separador: "'+c.pipeSep+'"'); }
-      if(c.pipeRef  !== undefined){ document.getElementById('fn-pipe-ref').value  = c.pipeRef;  aiFieldFlash('fn-pipe-ref');  changedFields.push('Índice Ref: '+c.pipeRef); }
-      if(c.pipeQty  !== undefined){ document.getElementById('fn-pipe-qty').value  = c.pipeQty;  aiFieldFlash('fn-pipe-qty');  changedFields.push('Índice Qtd: '+c.pipeQty); }
-      if(c.pipeDesc !== undefined){ document.getElementById('fn-pipe-desc').value = c.pipeDesc; aiFieldFlash('fn-pipe-desc'); }
+      setField('fn-pipe-sep',  c.pipeSep,  'Separador');
+      setField('fn-pipe-ref',  c.pipeRef,  'Índice Ref');
+      setField('fn-pipe-qty',  c.pipeQty,  'Índice Qtd');
+      setField('fn-pipe-desc', c.pipeDesc, null);
     } else if(t === 'kv'){
-      if(c.kvRef !== undefined){ document.getElementById('fn-kv-ref').value = c.kvRef; aiFieldFlash('fn-kv-ref'); changedFields.push('Chave Ref: "'+c.kvRef+'"'); }
-      if(c.kvQty !== undefined){ document.getElementById('fn-kv-qty').value = c.kvQty; aiFieldFlash('fn-kv-qty'); changedFields.push('Chave Qtd: "'+c.kvQty+'"'); }
-      if(c.kvSep !== undefined){ document.getElementById('fn-kv-sep').value = c.kvSep; aiFieldFlash('fn-kv-sep'); }
-      if(c.kvEq  !== undefined){ document.getElementById('fn-kv-eq').value  = c.kvEq;  aiFieldFlash('fn-kv-eq');  }
+      setField('fn-kv-ref', c.kvRef, 'Chave Ref');
+      setField('fn-kv-qty', c.kvQty, 'Chave Qtd');
+      setField('fn-kv-sep', c.kvSep, null);
+      setField('fn-kv-eq',  c.kvEq,  null);
     } else if(t === 'posicional'){
-      if(c.posRefS !== undefined){ document.getElementById('fn-pos-ref-s').value = c.posRefS; aiFieldFlash('fn-pos-ref-s'); changedFields.push('Ref início: '+c.posRefS); }
-      if(c.posRefE !== undefined){ document.getElementById('fn-pos-ref-e').value = c.posRefE; aiFieldFlash('fn-pos-ref-e'); changedFields.push('Ref fim: '+c.posRefE); }
-      if(c.posQtyS !== undefined){ document.getElementById('fn-pos-qty-s').value = c.posQtyS; aiFieldFlash('fn-pos-qty-s'); changedFields.push('Qtd início: '+c.posQtyS); }
-      if(c.posQtyE !== undefined){ document.getElementById('fn-pos-qty-e').value = c.posQtyE; aiFieldFlash('fn-pos-qty-e'); changedFields.push('Qtd fim: '+c.posQtyE); }
-      if(c.posDiv  !== undefined){ document.getElementById('fn-pos-div').value   = c.posDiv;  aiFieldFlash('fn-pos-div');  }
+      setField('fn-pos-ref-s', c.posRefS, 'Ref início');
+      setField('fn-pos-ref-e', c.posRefE, 'Ref fim');
+      setField('fn-pos-qty-s', c.posQtyS, 'Qtd início');
+      setField('fn-pos-qty-e', c.posQtyE, 'Qtd fim');
+      setField('fn-pos-div',   c.posDiv,  null);
     }
   }
+  fillConfig();
 
   // Exemplo de teste
-  if(testRaw){
+  if(testRaw && testRaw !== 'null'){
     document.getElementById('fn-test-raw').value = testRaw;
     aiFieldFlash('fn-test-raw');
-    changedFields.push('Exemplo de teste atualizado');
+    changedFields.push('Exemplo de teste');
   }
 
-  // Rodar teste automático e rolar para a seção de config
+  // Rodar teste e rolar para a seção preenchida
   setTimeout(()=>{
     fornTestParser();
-    const section = document.getElementById('fs-' + document.getElementById('fn-tipo').value);
+    const t = document.getElementById('fn-tipo').value;
+    const section = document.getElementById('fs-' + t);
     if(section) section.scrollIntoView({ behavior:'smooth', block:'start' });
-  }, 250);
+  }, 300);
 
   return changedFields;
 }
@@ -3674,7 +3670,7 @@ function aiChatApplyUpdate(update){
 async function aiChatSend(){
   if(_aiChatBusy) return;
   const key = localStorage.getItem('rcb_ai_key');
-  if(!key){ toast('Configure a chave IA primeiro',true); return; }
+  if(!key){ toast('Configure a chave IA na aba 🤖 IA primeiro',true); return; }
 
   const inp = document.getElementById('ai-chat-input');
   const msg = inp.value.trim();
@@ -3690,66 +3686,44 @@ async function aiChatSend(){
 
   const { cfg, raw } = aiChatReadForm();
 
-  const systemPrompt = `Você é um assistente especialista em configuração de regras de parsing de etiquetas logísticas e industriais, embutido dentro do formulário de cadastro de fornecedores do sistema RecebeMais.
+  // Monta exemplo concreto de saída esperada para o tipo atual
+  const exemploSaidaRegex = '{"mensagem":"Configurei regex para capturar referência e quantidade.","atualizar":{"nome":"FORNECEDOR","tipo":"regex","config":{"refRegex":"([0-9A-Z]+V000)","qtyRegex":"QTDE:\\\\s*(\\\\d+)","qtyDiv":1,"refStrip":""},"testRaw":"4XYZ123V000 lote: ABC123 QTDE: 50"},"pronto_para_salvar":false}';
 
-Seu trabalho é receber instruções em linguagem natural do usuário e SEMPRE retornar um JSON que atualiza os campos do formulário automaticamente.
+  const systemPrompt =
+`Você é o assistente de configuração de fornecedores do sistema RecebeMais. Analise etiquetas e configure regras de parsing.
 
-═══ CONTEXTO ATUAL DO FORMULÁRIO ═══
-Fornecedor: ${cfg.nome || '(não preenchido)'}
-Tipo de parser ativo: ${cfg.tipo}
-Configuração atual dos campos: ${JSON.stringify(cfg, null, 2)}
-Etiqueta/QR de exemplo no formulário: ${raw || '(vazio)'}
+ESTADO ATUAL DO FORMULÁRIO:
+fornecedor="${cfg.nome||''}" tipo="${cfg.tipo}" config=${JSON.stringify(cfg)} exemplo="${raw||''}"
 
-═══ TIPOS DE PARSER DISPONÍVEIS ═══
-• "regex"      → extrai ref e quantidade com expressões regulares (grupo 1 captura o valor)
-• "pipe"       → formato REF|DESC|QTD|FORN separado por delimitador (índice base 0)
-• "kv"         → pares CHAVE=valor;CHAVE2=valor2
-• "posicional" → extrai por posição fixa no texto (início:fim)
-• "json"       → dados em JSON {"ref":"x","qty":10}
-• "generico"   → texto livre, aceita qualquer formato
+TIPOS DE PARSER:
+- "regex": usa refRegex e qtyRegex com grupo de captura (...)
+- "pipe": campos separados por delimitador, índices base-0
+- "kv": pares CHAVE=valor separados por ponto-vírgula
+- "posicional": extrai por posição de caractere
+- "json": dados em JSON puro
+- "generico": texto livre
 
-═══ CAMPOS DE CONFIGURAÇÃO POR TIPO ═══
-regex:      refRegex (string), qtyRegex (string), qtyDiv (número), refStrip (string a remover do início da ref)
-pipe:       pipeSep (separador, ex:"|"), pipeRef (índice int), pipeQty (índice int), pipeDesc (índice int, -1=ignorar)
-kv:         kvRef (nome da chave), kvQty (nome da chave), kvSep (separador de pares), kvEq (separador chave=valor)
-posicional: posRefS (int), posRefE (int), posQtyS (int), posQtyE (int), posDiv (número)
+CAMPOS POR TIPO:
+regex -> refRegex(string), qtyRegex(string), qtyDiv(int), refStrip(string)
+pipe  -> pipeSep(string), pipeRef(int), pipeQty(int), pipeDesc(int)
+kv    -> kvRef(string), kvQty(string), kvSep(string), kvEq(string)
+posicional -> posRefS(int), posRefE(int), posQtyS(int), posQtyE(int), posDiv(int)
 
-═══ EXEMPLOS DE REGEX COMUNS ═══
-• Ref após "P" até espaço:    refRegex = "P([A-Z0-9]+)"
-• 12 dígitos+letra após "I":  refRegex = "(I\\d{11}[A-Z])"
-• QTY no meio Q000XXX000:     qtyRegex = "Q\\d{3}(\\d{3,6})\\d{3}"
-• Lote/lote: após label:      refRegex = "lote:\\s*([\\w-]+)"  (case-insensitive)
-• QTDE: número após label:    qtyRegex = "QTDE?:\\s*(\\d+)"
-• Número puro no fim:         qtyRegex = "(\\d+)\\s*$"
+REGRAS DE REGEX:
+- Sempre use grupo de captura: ex "lote:\\s*([\\w-]+)" captura o valor após "lote:"
+- QTDE: ex "QTDE?:\\s*(\\d+)" captura número após QTDE ou QTD
+- Ref com padrão fixo: ex "([0-9][\\w]*V000)" captura algo como 4XYZ123V000
+- Escape em JSON: barra vira \\\\ (duas barras no JSON = uma na regex)
 
-═══ REGRAS OBRIGATÓRIAS DE RESPOSTA ═══
-1. Retorne SEMPRE um JSON válido com EXATAMENTE esta estrutura — sem texto fora do JSON, sem markdown:
-{
-  "mensagem": "Explicação em português do que foi configurado. Use **negrito** para destacar valores e \`código\` para mostrar regex/padrões. Seja específico: diga qual campo foi preenchido e por quê.",
-  "atualizar": {
-    "nome": "nome do fornecedor em maiúsculas ou null",
-    "tipo": "tipo escolhido ou null para não mudar",
-    "config": {
-      // apenas os campos relevantes para o tipo escolhido, com os valores corretos
-    },
-    "testRaw": "exemplo de etiqueta para o campo de teste, ou null"
-  }
-}
+RETORNE APENAS UM JSON VÁLIDO, sem texto fora, sem markdown, sem comentários:
+${exemploSaidaRegex}
 
-2. Se o usuário colar uma etiqueta de exemplo → analise profundamente, escolha o melhor tipo de parser, preencha TODOS os campos de config necessários, coloque a etiqueta no testRaw.
-3. Se o usuário disser que algo está errado → corrija exatamente o campo errado, explique o que mudou.
-4. Se o usuário descrever o padrão em palavras → converta para a regex correta e preencha.
-5. Se não houver nada a alterar → coloque "atualizar": null.
-6. NUNCA deixe "atualizar" com campos vazios quando o usuário pediu uma configuração — preencha todos os campos relevantes.
-7. Para regex, sempre use grupos de captura (...) no padrão. Escape barras duplas em JSON: \\\\ para \\\\.
-8. Inclua "pronto_para_salvar": true SOMENTE quando o usuário confirmar que os resultados estão corretos (ex: "ficou certo", "está correto", "pode salvar"). Caso contrário, use false.
+CAMPOS DO JSON DE RESPOSTA:
+- "mensagem": string em português explicando o que foi feito
+- "atualizar": objeto com nome, tipo, config, testRaw (ou null se nada a mudar)
+- "pronto_para_salvar": true somente se usuário disse que está correto
 
-Estrutura COMPLETA do JSON:
-{
-  "mensagem": "...",
-  "atualizar": { "nome": null, "tipo": null, "config": {}, "testRaw": null } ou null,
-  "pronto_para_salvar": false
-}`;
+IMPORTANTE: quando tipo for "regex", o objeto config DEVE ter refRegex e qtyRegex preenchidos com strings reais.`;
 
   const messages = [
     { role:'system', content: systemPrompt },
@@ -3765,7 +3739,7 @@ Estrutura COMPLETA do JSON:
       },
       body: JSON.stringify({
         model:           'gpt-4o',
-        max_tokens:      1400,
+        max_tokens:      1200,
         temperature:     0.1,
         response_format: { type: 'json_object' },
         messages
@@ -3779,44 +3753,42 @@ Estrutura COMPLETA do JSON:
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
 
-    const data  = await resp.json();
-    const raw2  = data.choices?.[0]?.message?.content || '{}';
+    const data = await resp.json();
+    const raw2 = data.choices?.[0]?.message?.content || '{}';
+
     let result;
     try {
-      const clean = raw2.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-      result = JSON.parse(clean);
+      result = JSON.parse(raw2.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim());
     } catch(pe){
-      throw new Error('Resposta IA em formato inválido. Tente novamente.');
+      throw new Error('Formato de resposta inesperado. Tente novamente.');
     }
 
-    // Exibir resposta da IA
+    // Exibir mensagem da IA
     aiChatAddMsg('ai', aiFormatText(result.mensagem || 'Entendido.'));
     _aiChatHistory.push({ role:'assistant', content: raw2 });
 
-    // Aplicar campos e mostrar resumo do que mudou
-    if(result.atualizar){
+    // Aplicar + mostrar o que mudou
+    if(result.atualizar && typeof result.atualizar === 'object'){
       const changed = aiChatApplyUpdate(result.atualizar);
       if(changed && changed.length){
-        const resumo = changed.map(f => '• ' + f).join('<br>');
-        aiChatAddMsg('sys', '✓ Campos atualizados:<br>' + resumo);
+        aiChatAddMsg('sys', '✓ Campos atualizados:<br>' + changed.map(f=>'• '+f).join('<br>'));
       } else {
-        aiChatAddMsg('sys', '✓ Configuração aplicada ao formulário');
+        aiChatAddMsg('sys', '✓ Configuração aplicada');
       }
     }
 
-    // Se a IA sinalizou que está pronto para salvar
-    if(result.pronto_para_salvar){
+    // Botão de salvar quando IA sinalizar pronto
+    if(result.pronto_para_salvar === true){
       const box = document.getElementById('ai-chat-msgs');
       const saveEl = document.createElement('div');
       saveEl.className = 'ai-msg sys';
-      saveEl.style.cssText = 'align-self:stretch;text-align:center;cursor:pointer;background:rgba(0,245,160,.12);border-color:var(--gr)';
-      saveEl.innerHTML = '💾 Tudo certo! Toque aqui para <b style="color:var(--gr)">Salvar o Fornecedor</b>';
+      saveEl.style.cssText = 'align-self:stretch;text-align:center;cursor:pointer;background:rgba(0,245,160,.14);border-color:var(--gr);font-size:.64rem;padding:11px';
+      saveEl.innerHTML = '💾 Tudo certo! Toque aqui para <b style="color:var(--gr)">Salvar Fornecedor</b>';
       saveEl.onclick = () => fornSave();
       box.appendChild(saveEl);
-      setTimeout(()=>{ box.scrollTop = box.scrollHeight; }, 50);
+      setTimeout(()=>{ box.scrollTop = box.scrollHeight; }, 60);
     }
 
-    // Manter histórico controlado
     if(_aiChatHistory.length > 24) _aiChatHistory = _aiChatHistory.slice(-24);
 
   } catch(err){
