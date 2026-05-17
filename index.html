@@ -1,0 +1,3728 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>RecebeMais</title>
+<!-- jsQR: fallback leve -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<!-- ZXing: decoder robusto -->
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<!-- Google Cloud Vision é usado via fetch, sem biblioteca extra -->
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  CHAVE DA API GOOGLE CLOUD VISION — edite aqui          ║ -->
+<!-- ║  Obtenha em: console.cloud.google.com → Vision API      ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<script>
+  const EMBEDDED_VISION_KEY = '';  // ← Cole sua chave aqui entre as aspas
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="manifest" href="data:application/json,{%22name%22:%22RecebeMais%22,%22short_name%22:%22RecebeMais%22,%22display%22:%22standalone%22,%22background_color%22:%22%2307090f%22,%22theme_color%22:%22%2300d8ff%22,%22icons%22:[{%22src%22:%22data:image/svg+xml,%253Csvg%2520xmlns%3D'http%3A//www.w3.org/2000/svg'%2520viewBox%3D'0%25200%252032%252032'%253E%253Crect%2520width%3D'32'%2520height%3D'32'%2520fill%3D'%252307090f'/%253E%253Ctext%2520x%3D'4'%2520y%3D'24'%2520font-size%3D'22'%2520fill%3D'%252300d8ff'%253ER%252B%253C/text%253E%253C/svg%253E%22,%22sizes%22:%22any%22,%22type%22:%22image/svg+xml%22}]}">
+<meta name="theme-color" content="#00d8ff">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#07090f;
+  --s1:#0e1420;
+  --s2:#141d2e;
+  --s3:#1a2438;
+  --bd:#1e2e45;
+  --bd2:#243550;
+  --cy:#00d8ff;
+  --gr:#00f5a0;
+  --wa:#ff8c00;
+  --re:#ff3355;
+  --tx:#cce4ff;
+  --mu:#3d6080;
+  --mu2:#5a80a0;
+  --F:'IBM Plex Mono',monospace;
+  --R:'Rajdhani',sans-serif;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+body{color:var(--tx);font-family:var(--F);font-size:14px}
+
+/* ══ PAGES ══ */
+.pg{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);
+  transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .3s;overflow:hidden;will-change:transform}
+.pg.out{transform:translateX(100%);opacity:0;pointer-events:none}
+.pg.back{transform:translateX(-6%);opacity:0;pointer-events:none}
+
+/* ══ HEADER ══ */
+.hdr{background:var(--s1);border-bottom:1px solid var(--bd);padding:12px 16px;
+  display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:20}
+.back-btn{background:none;border:none;color:var(--cy);font-family:var(--R);font-weight:600;
+  font-size:.75rem;letter-spacing:1px;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:4px}
+.pg-ttl{font-family:var(--R);font-weight:700;font-size:1rem;color:var(--tx);
+  letter-spacing:2px;text-transform:uppercase}
+.hdr-side{min-width:60px;display:flex;justify-content:flex-end}
+
+/* ══ SCROLLABLE BODY ══ */
+.body{flex:1;overflow-y:auto;padding:12px;-webkit-overflow-scrolling:touch}
+.body::-webkit-scrollbar{width:2px}
+.body::-webkit-scrollbar-thumb{background:var(--bd)}
+
+/* ══ CARD ══ */
+.card{background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:10px}
+.card.hi{border-color:var(--bd2)}
+.ctit{font-family:var(--R);font-weight:700;font-size:.65rem;letter-spacing:2px;
+  text-transform:uppercase;color:var(--cy);margin-bottom:12px;display:flex;
+  align-items:center;justify-content:space-between}
+
+/* ══ FORMS ══ */
+label{display:block;font-size:.56rem;color:var(--mu2);letter-spacing:1px;
+  text-transform:uppercase;margin-bottom:3px}
+input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:7px;
+  color:var(--tx);font-family:var(--F);font-size:.85rem;padding:10px 12px;
+  outline:none;transition:border-color .2s;margin-bottom:9px;-webkit-appearance:none}
+input:focus,select:focus,textarea:focus{border-color:var(--cy)}
+textarea{resize:none;min-height:60px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+
+/* ══ BUTTONS ══ */
+.btn{width:100%;padding:12px;border-radius:8px;border:none;font-family:var(--R);
+  font-weight:700;font-size:.88rem;letter-spacing:2px;text-transform:uppercase;
+  cursor:pointer;transition:opacity .15s,transform .1s;margin-bottom:8px;display:block}
+.btn:last-child{margin-bottom:0}
+.btn:active{transform:scale(.97);opacity:.85}
+.btn-cy{background:var(--cy);color:#000}
+.btn-gr{background:var(--gr);color:#000}
+.btn-re{background:var(--re);color:#fff}
+.btn-wa{background:var(--wa);color:#fff}
+.btn-x{background:transparent;border:1px solid var(--bd);color:var(--mu2)}
+.btn-x:active{border-color:var(--cy);color:var(--cy)}
+.row{display:flex;gap:8px}.row .btn{margin-bottom:0;flex:1}
+
+/* ══ DASHBOARD ══ */
+.dash-hero{padding:20px 16px 10px;text-align:center}
+.dash-logo{font-family:var(--R);font-weight:700;font-size:2.2rem;
+  color:var(--cy);letter-spacing:5px;text-transform:uppercase;line-height:1}
+.dash-logo span{color:var(--gr)}
+.dash-tagline{font-size:.55rem;color:var(--mu);letter-spacing:3px;margin-top:4px;text-transform:uppercase}
+.dash-time{font-family:var(--R);font-size:1.4rem;font-weight:600;
+  color:var(--tx);letter-spacing:3px;margin-top:8px}
+
+/* Sessão ativa pill */
+.sess-pill{margin:0 12px 10px;background:var(--s1);border:1px solid var(--bd);
+  border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:10px;cursor:pointer}
+.sess-pill:active{background:var(--s2)}
+.sdot{width:9px;height:9px;border-radius:50%;background:var(--mu);flex-shrink:0;
+  transition:background .3s,box-shadow .3s}
+.sdot.live{background:var(--gr);box-shadow:0 0 8px var(--gr)}
+.sinfo{flex:1;min-width:0}
+.sname{font-family:var(--R);font-weight:700;font-size:.9rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sdet{font-size:.54rem;color:var(--mu2);margin-top:2px;letter-spacing:.3px}
+
+/* Contadores dash */
+.dash-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;
+  padding:0 12px 10px}
+.dstat{background:var(--s1);border:1px solid var(--bd);border-radius:9px;
+  padding:10px 6px;text-align:center}
+.dstat .n{font-family:var(--R);font-size:1.6rem;font-weight:700;color:var(--cy);line-height:1}
+.dstat .l{font-size:.48rem;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:3px}
+.dstat.g .n{color:var(--gr)}
+.dstat.o .n{color:var(--wa)}
+
+/* Grid botões dash */
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 12px 16px}
+.dbtn{background:var(--s1);border:1px solid var(--bd);border-radius:13px;
+  padding:16px 10px 14px;display:flex;flex-direction:column;align-items:center;
+  gap:7px;cursor:pointer;transition:border-color .2s,background .15s;text-align:center}
+.dbtn:active{background:var(--s2);transform:scale(.97)}
+.dbtn.cy{border-color:rgba(0,216,255,.35);background:rgba(0,216,255,.05)}
+.dbtn.gr{border-color:rgba(0,245,160,.3);background:rgba(0,245,160,.04)}
+.dbtn.wa{border-color:rgba(255,140,0,.3);background:rgba(255,140,0,.04)}
+.dbtn.re{border-color:rgba(255,51,85,.25);background:rgba(255,51,85,.04)}
+.dbtn-ico{font-size:1.5rem;line-height:1;opacity:.8}
+.dbtn-lbl{font-family:var(--R);font-weight:700;font-size:.82rem;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--tx)}
+.dbtn-sub{font-size:.52rem;color:var(--mu2);letter-spacing:.3px}
+.dbtn-badge{background:var(--cy);color:#000;font-size:.5rem;font-weight:700;
+  border-radius:8px;padding:2px 6px;font-family:var(--R);letter-spacing:1px}
+
+/* ══ CÂMERA ══ */
+#cam-wrap{position:relative;width:100%;background:#000;border-radius:10px;
+  overflow:hidden;margin-bottom:8px;aspect-ratio:4/3}
+#vid{width:100%;height:100%;object-fit:cover;display:block}
+.cam-ov{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;pointer-events:none}
+.sf{width:60%;aspect-ratio:1;border-radius:8px;position:relative;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.55)}
+.sf::before{content:'';position:absolute;inset:-2px;border:2px solid var(--cy);border-radius:8px}
+.sl{position:absolute;left:4px;right:4px;height:2px;top:4px;
+  background:linear-gradient(90deg,transparent,var(--cy),transparent);
+  animation:sw 1.8s ease-in-out infinite}
+@keyframes sw{0%{top:4px;opacity:1}88%{top:calc(100% - 6px);opacity:1}100%{top:calc(100% - 6px);opacity:0}}
+.sc{position:absolute;width:16px;height:16px;border-color:var(--gr);border-style:solid}
+.sc.tl{top:-2px;left:-2px;border-width:3px 0 0 3px;border-radius:4px 0 0 0}
+.sc.tr{top:-2px;right:-2px;border-width:3px 3px 0 0;border-radius:0 4px 0 0}
+.sc.bl{bottom:-2px;left:-2px;border-width:0 0 3px 3px;border-radius:0 0 0 4px}
+.sc.br{bottom:-2px;right:-2px;border-width:0 3px 3px 0;border-radius:0 0 4px 0}
+#cam-cnt{position:absolute;bottom:7px;right:10px;font-size:.52rem;
+  color:rgba(0,216,255,.6);pointer-events:none;letter-spacing:1px}
+.cam-ph{position:absolute;inset:0;background:var(--s2);display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  transition:opacity .2s}
+.cam-ph.off{opacity:0;pointer-events:none}
+.cph-i{font-size:2.8rem;opacity:.12;line-height:1}
+.cph-t{font-size:.58rem;color:var(--mu);letter-spacing:.5px}
+#cam-st{font-size:.64rem;text-align:center;padding:4px 0;min-height:22px;letter-spacing:.3px}
+#cam-st.ok{color:var(--gr)}
+#cam-st.err{color:var(--re)}
+#cam-st.wa{color:var(--wa)}
+
+/* ══ QR RESULT ══ */
+.qr-box{display:none;background:var(--s2);border:1px solid var(--gr);
+  border-radius:10px;padding:12px;margin-top:6px;animation:fadeUp .2s ease}
+.qr-box.on{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.rr{display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;border-bottom:1px solid var(--bd)}
+.rr:last-of-type{border:none}
+.rk{font-size:.55rem;color:var(--mu2);letter-spacing:1px;text-transform:uppercase}
+.rv{font-weight:500;font-size:.75rem}
+.rv.ref{color:var(--cy);font-family:var(--R);font-weight:700;font-size:1rem}
+.rv.qty{color:var(--gr);font-family:var(--R);font-weight:700;font-size:1.3rem}
+.rv.tot{color:var(--wa);font-family:var(--R);font-weight:700;font-size:1.1rem}
+.acc-bar{display:none;background:rgba(255,140,0,.07);border:1px solid rgba(255,140,0,.3);
+  border-radius:6px;padding:7px 10px;font-size:.62rem;color:var(--wa);
+  line-height:1.7;margin-bottom:8px}
+.acc-bar.on{display:block}
+
+/* ══ ITEM LIST ══ */
+.ilist{display:flex;flex-direction:column;gap:7px}
+.ic{background:var(--s1);border:1px solid var(--bd);border-radius:10px;
+  padding:11px 13px;display:flex;align-items:center;gap:10px;
+  animation:fadeUp .18s ease;cursor:pointer;transition:border-color .2s}
+.ic:active{background:var(--s2)}
+.ic.multi{border-color:rgba(0,245,160,.25)}
+.ic.editing{border-color:var(--cy);background:rgba(0,216,255,.04)}
+.iref{font-family:var(--R);font-size:.98rem;font-weight:700}
+.iqty{font-family:var(--R);font-size:1.3rem;font-weight:700;color:var(--gr);
+  min-width:52px;text-align:right}
+.itag{font-size:.5rem;color:var(--wa);background:rgba(255,140,0,.1);
+  border-radius:3px;padding:1px 5px;display:inline-block;margin-top:2px;letter-spacing:.5px}
+.imeta{font-size:.55rem;color:var(--mu2);margin-top:2px}
+.idel{background:none;border:none;color:var(--re);cursor:pointer;
+  font-size:.8rem;padding:5px 4px;opacity:.6;flex-shrink:0}
+.idel:active{opacity:1}
+
+/* Edit inline */
+.edit-row{display:none;border-top:1px solid var(--bd);margin-top:8px;padding-top:8px}
+.edit-row.on{display:flex;gap:6px;align-items:center}
+.edit-row input{margin-bottom:0;padding:7px 10px;font-size:.82rem;flex:1}
+.edit-row .btn{padding:8px 12px;font-size:.72rem;width:auto;margin-bottom:0;letter-spacing:1px}
+
+/* ══ STATS ══ */
+.stats{display:flex;gap:7px;margin-bottom:10px}
+.stat{flex:1;background:var(--s1);border:1px solid var(--bd);border-radius:9px;
+  padding:9px;text-align:center}
+.stat .n{font-family:var(--R);font-size:1.7rem;font-weight:700;color:var(--cy);line-height:1}
+.stat .l{font-size:.5rem;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+.stat.g .n{color:var(--gr)}
+.stat.o .n{color:var(--wa)}
+
+/* ══ HISTÓRICO ══ */
+.hcard{background:var(--s1);border:1px solid var(--bd);border-radius:10px;
+  padding:13px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
+.hcard:active{background:var(--s2)}
+.hcard-head{display:flex;align-items:center;justify-content:space-between}
+.hcard-forn{font-family:var(--R);font-weight:700;font-size:.95rem}
+.hcard-date{font-size:.55rem;color:var(--mu2)}
+.hcard-stats{display:flex;gap:10px;margin-top:6px}
+.hstat{font-size:.6rem;color:var(--mu2)}
+.hstat b{color:var(--cy);font-family:var(--R);font-size:.8rem}
+.hdel{background:none;border:none;color:var(--re);cursor:pointer;
+  font-size:.75rem;padding:3px;opacity:.5}
+.hdel:active{opacity:1}
+
+/* ══ EXPORT BOX ══ */
+.exbox{background:var(--bg);border:1px solid var(--bd);border-radius:6px;
+  padding:10px;font-size:.6rem;color:var(--mu2);white-space:pre;
+  overflow-x:auto;max-height:180px;margin-bottom:8px;line-height:1.9}
+
+/* ══ INFO BOX ══ */
+.ibox{background:rgba(0,216,255,.04);border:1px solid rgba(0,216,255,.15);
+  border-radius:7px;padding:9px 11px;font-size:.6rem;color:var(--mu2);
+  line-height:1.9;margin-bottom:8px}
+.ibox b{color:var(--cy)}
+.ibox code{color:var(--tx);background:rgba(255,255,255,.06);
+  padding:1px 4px;border-radius:3px;font-size:.58rem}
+
+/* ══ EMPTY ══ */
+.empty{text-align:center;padding:36px 20px;color:var(--mu)}
+.ei{letter-spacing:5px;opacity:.15;margin-bottom:10px;font-size:.8rem}
+.et{font-size:.65rem;letter-spacing:1px}
+
+/* ══ WARN / ALERT ══ */
+.wbox{display:none;padding:9px 11px;background:rgba(255,51,85,.07);
+  border:1px solid rgba(255,51,85,.3);border-radius:7px;
+  font-size:.63rem;color:var(--re);margin-bottom:9px;line-height:1.6}
+.wbox.on{display:block}
+.abox{padding:9px 11px;background:rgba(0,245,160,.05);
+  border:1px solid rgba(0,245,160,.2);border-radius:7px;
+  font-size:.63rem;color:var(--gr);margin-bottom:9px;line-height:1.6}
+
+/* ══ SEPARADOR ══ */
+.sep{height:1px;background:var(--bd);margin:10px 0}
+
+/* ══ TOAST ══ */
+#toast{position:fixed;bottom:20px;left:50%;
+  transform:translateX(-50%) translateY(60px);
+  background:var(--s2);border:1px solid var(--gr);color:var(--gr);
+  padding:9px 20px;border-radius:20px;font-size:.68rem;letter-spacing:.5px;
+  z-index:9999;transition:transform .25s;white-space:nowrap;max-width:88vw;
+  overflow:hidden;text-overflow:ellipsis}
+#toast.on{transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:var(--re);color:var(--re)}
+#toast.wa{border-color:var(--wa);color:var(--wa)}
+
+/* ══ FLASH ══ */
+#flash{position:fixed;inset:0;background:rgba(0,245,160,.08);
+  pointer-events:none;z-index:9990;opacity:0;transition:opacity .12s}
+#flash.on{opacity:1}
+
+/* ══ MODAL ══ */
+.mbg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);
+  z-index:800;align-items:center;justify-content:center;padding:16px}
+.mbg.on{display:flex}
+.md{background:var(--s1);border:1px solid var(--bd);border-radius:13px;
+  padding:20px;width:100%;max-width:360px}
+.md h3{font-family:var(--R);font-weight:700;font-size:.88rem;color:var(--cy);
+  letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+.md p{font-size:.7rem;color:var(--mu2);line-height:1.7}
+.mrow{display:flex;gap:8px;margin-top:14px}
+.mrow .btn{margin-bottom:0;flex:1}
+
+/* MODAL EDIT */
+#mdl-edit .md{max-width:380px}
+#mdl-edit label{margin-top:4px}
+#mdl-edit input{margin-bottom:6px}
+
+/* Hist item edit (editable rows) */
+.hic{background:var(--s1);border:1px solid var(--bd);border-radius:10px;
+  padding:11px 13px;display:flex;align-items:center;gap:10px;
+  animation:fadeUp .18s ease;cursor:pointer;transition:border-color .2s}
+.hic:active{background:var(--s2)}
+.hic.multi{border-color:rgba(0,245,160,.25)}
+.hic-edit{display:none;border-top:1px solid var(--bd);margin-top:8px;padding-top:8px}
+.hic-edit.on{display:flex;gap:6px;align-items:center}
+.hic-edit input{margin-bottom:0;padding:7px 10px;font-size:.82rem;flex:1}
+.hic-edit .btn{padding:8px 12px;font-size:.72rem;width:auto;margin-bottom:0;letter-spacing:1px}
+
+/* QR manual input */
+.qr-manual{background:rgba(0,216,255,.04);border:1px solid rgba(0,216,255,.15);
+  border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.qr-manual .ctit{margin-bottom:8px;font-size:.6rem}
+.qr-manual input{margin-bottom:6px}
+.qr-manual .btn{padding:9px;font-size:.75rem}
+
+/* Engine badge */
+#engine-badge{font-size:.46rem;color:var(--mu);letter-spacing:.8px;
+  text-align:center;padding:2px 0 4px;opacity:.6}
+
+/* Scanning pulse quando ativo */
+@keyframes scanPulse{0%,100%{opacity:.5}50%{opacity:1}}
+#cam-wrap.scanning .sf::before{animation:scanPulse 1s ease-in-out infinite}
+
+/* OCR overlay */
+#ocr-overlay{position:absolute;inset:0;background:rgba(7,9,15,.82);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  border-radius:10px;z-index:10}
+#ocr-overlay.on{display:flex}
+.ocr-spin{width:32px;height:32px;border:3px solid var(--bd);
+  border-top-color:var(--cy);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ocr-prog{font-size:.6rem;color:var(--cy);letter-spacing:1px}
+.ocr-hint{font-size:.52rem;color:var(--mu2);letter-spacing:.3px;text-align:center;padding:0 20px}
+
+/* OCR mode toggle */
+.mode-toggle{display:flex;gap:0;margin-bottom:8px;border:1px solid var(--bd);border-radius:7px;overflow:hidden}
+.mode-btn{flex:1;padding:8px 6px;background:transparent;border:none;
+  font-family:var(--R);font-weight:700;font-size:.7rem;letter-spacing:1px;
+  text-transform:uppercase;color:var(--mu2);cursor:pointer;transition:all .15s}
+.mode-btn.active{background:var(--s2);color:var(--cy)}
+.mode-btn:active{opacity:.7}
+
+/* OCR SPI result preview */
+#ocr-raw-box{display:none;background:var(--bg);border:1px solid var(--bd);
+  border-radius:6px;padding:8px 10px;font-size:.56rem;color:var(--mu2);
+  white-space:pre-wrap;word-break:break-all;max-height:70px;overflow-y:auto;
+  margin-bottom:6px;line-height:1.7}
+#ocr-raw-box.on{display:block}
+
+/* ══ OCR COUNTDOWN BAR ══ */
+#ocr-countdown{height:2px;background:var(--bd);border-radius:1px;margin-bottom:4px;overflow:hidden;display:none}
+#ocr-countdown.on{display:block}
+#ocr-countdown-fill{height:100%;background:var(--cy);width:100%;
+  transition:width 1s linear;border-radius:1px}
+
+/* ══ SORT CONTROL ══ */
+.sort-ctrl{display:flex;gap:0;margin-bottom:8px;border:1px solid var(--bd);border-radius:7px;overflow:hidden}
+.sort-btn{flex:1;padding:6px 4px;background:transparent;border:none;
+  font-family:var(--R);font-weight:700;font-size:.62rem;letter-spacing:.8px;
+  text-transform:uppercase;color:var(--mu2);cursor:pointer;transition:all .15s}
+.sort-btn.active{background:var(--s2);color:var(--cy)}
+.sort-btn:active{opacity:.7}
+
+/* ══ HIST SEARCH ══ */
+#hist-search{margin-bottom:8px}
+
+/* ══ HIST FILTER TABS ══ */
+.hist-filter{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px}
+.hist-filter::-webkit-scrollbar{display:none}
+.hftab{background:var(--s1);border:1px solid var(--bd);border-radius:6px;
+  padding:5px 12px;font-family:var(--R);font-weight:700;font-size:.6rem;
+  letter-spacing:1px;text-transform:uppercase;color:var(--mu2);
+  cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s}
+.hftab.active{background:rgba(0,216,255,.1);border-color:var(--cy);color:var(--cy)}
+
+/* ══ EXPORT SESSÃO ATIVA ══ */
+#card-export-sess{display:none;margin-top:0}
+
+/* ══ STORAGE WARNING ══ */
+#storage-warn{display:none;background:rgba(255,140,0,.08);border:1px solid rgba(255,140,0,.3);
+  border-radius:7px;padding:8px 11px;font-size:.6rem;color:var(--wa);
+  margin:0 12px 8px;line-height:1.6}
+#storage-warn.on{display:block}
+/* ══ API KEY EMBEDED STATUS ══ */
+.key-src{font-size:.5rem;padding:2px 7px;border-radius:4px;letter-spacing:1px;font-family:var(--R)}
+.key-src.emb{background:rgba(0,245,160,.12);color:var(--gr)}
+.key-src.ls {background:rgba(0,216,255,.1); color:var(--cy)}
+.key-src.none{background:rgba(255,51,85,.15);color:var(--re)}
+
+/* ══ DUPLICATE ALERT ══ */
+.dup-flash{animation:dupPulse .35s ease}
+@keyframes dupPulse{0%{background:rgba(255,140,0,.2)}100%{background:transparent}}
+
+/* ══ FORNECEDOR CADASTRADO ══ */
+.forn-card{background:var(--s2);border:1px solid var(--bd);border-radius:10px;
+  padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
+.forn-card:active{background:var(--s3)}
+.forn-card-head{display:flex;align-items:center;justify-content:space-between}
+.forn-card-name{font-family:var(--R);font-weight:700;font-size:1rem;color:var(--cy)}
+.forn-card-type{font-size:.5rem;padding:2px 7px;border-radius:4px;letter-spacing:1px;
+  font-family:var(--R);font-weight:700;background:rgba(0,216,255,.1);color:var(--cy)}
+.forn-card-type.regex{background:rgba(255,140,0,.1);color:var(--wa)}
+.forn-card-type.pipe{background:rgba(0,245,160,.1);color:var(--gr)}
+.forn-card-type.kv{background:rgba(0,245,160,.1);color:var(--gr)}
+.forn-card-type.json{background:rgba(0,245,160,.1);color:var(--gr)}
+.forn-card-type.generico{background:rgba(100,100,100,.15);color:var(--mu2)}
+.forn-card-meta{font-size:.55rem;color:var(--mu2);margin-top:5px;line-height:1.7}
+.forn-card-del{background:none;border:none;color:var(--re);cursor:pointer;
+  font-size:.75rem;padding:3px 5px;opacity:.5}
+.forn-card-del:active{opacity:1}
+
+/* Tabs dentro da página forn */
+.forn-tabs{display:flex;gap:0;border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:12px}
+.forn-tab{flex:1;padding:9px 6px;background:transparent;border:none;
+  font-family:var(--R);font-weight:700;font-size:.68rem;letter-spacing:1px;
+  text-transform:uppercase;color:var(--mu2);cursor:pointer;transition:all .15s}
+.forn-tab.active{background:var(--s2);color:var(--cy)}
+
+/* Seção de campo de parser */
+.parser-section{background:rgba(0,216,255,.03);border:1px solid rgba(0,216,255,.12);
+  border-radius:8px;padding:11px 12px;margin-bottom:8px}
+.parser-section-title{font-family:var(--R);font-weight:700;font-size:.6rem;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--cy);margin-bottom:8px}
+.parser-hint{font-size:.54rem;color:var(--mu2);line-height:1.7;margin-bottom:6px}
+.parser-hint code{color:var(--tx);background:rgba(255,255,255,.06);
+  padding:1px 5px;border-radius:3px;font-size:.52rem}
+.parser-hint b{color:var(--cy)}
+
+/* Toggle switch */
+.tog-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.tog-lbl{font-size:.6rem;color:var(--mu2);letter-spacing:.5px}
+.tog{position:relative;width:38px;height:20px;flex-shrink:0}
+.tog input{opacity:0;width:0;height:0;position:absolute}
+.tog-sl{position:absolute;inset:0;background:var(--bd);border-radius:10px;
+  cursor:pointer;transition:background .2s}
+.tog-sl::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;
+  background:#fff;border-radius:50%;transition:transform .2s}
+.tog input:checked+.tog-sl{background:var(--cy)}
+.tog input:checked+.tog-sl::after{transform:translateX(18px)}
+
+/* Teste de parser */
+#forn-test-box{display:none;margin-top:8px;padding:10px 12px;background:var(--bg);
+  border:1px solid var(--bd);border-radius:7px;font-size:.6rem;line-height:1.9;color:var(--mu2)}
+#forn-test-box.ok{border-color:var(--gr);display:block}
+#forn-test-box.err{border-color:var(--re);display:block}
+#forn-test-box b{color:var(--cy)}
+#forn-test-box .ok-val{color:var(--gr)}
+#forn-test-box .err-val{color:var(--re)}
+
+/* ══ AI ASSISTANT ══ */
+.ai-panel{background:linear-gradient(135deg,rgba(0,216,255,.04) 0%,rgba(0,245,160,.03) 100%);
+  border:1px solid rgba(0,216,255,.22);border-radius:12px;padding:14px;margin-bottom:10px;
+  position:relative;overflow:hidden}
+.ai-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--cy),var(--gr));opacity:.5}
+.ai-panel-title{font-family:var(--R);font-weight:700;font-size:.65rem;letter-spacing:2px;
+  text-transform:uppercase;color:var(--cy);margin-bottom:10px;display:flex;align-items:center;gap:7px}
+.ai-badge{background:linear-gradient(90deg,var(--cy),var(--gr));color:#000;font-size:.44rem;
+  padding:2px 6px;border-radius:4px;letter-spacing:1px;font-family:var(--R);font-weight:700}
+.ai-thinking{display:none;align-items:center;gap:8px;padding:10px 0;font-size:.6rem;color:var(--mu2)}
+.ai-thinking.on{display:flex}
+.ai-dots{display:flex;gap:4px}
+.ai-dot{width:5px;height:5px;border-radius:50%;background:var(--cy);opacity:.3}
+.ai-dot:nth-child(1){animation:aiPulse 1.2s .0s ease-in-out infinite}
+.ai-dot:nth-child(2){animation:aiPulse 1.2s .2s ease-in-out infinite}
+.ai-dot:nth-child(3){animation:aiPulse 1.2s .4s ease-in-out infinite}
+@keyframes aiPulse{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
+.ai-result{display:none;margin-top:8px}
+.ai-result.on{display:block}
+.ai-section{margin-bottom:10px}
+.ai-section-lbl{font-size:.52rem;color:var(--mu2);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px}
+.ai-analysis{background:var(--bg);border:1px solid var(--bd);border-radius:7px;
+  padding:9px 11px;font-size:.62rem;color:var(--tx);line-height:1.8}
+.ai-analysis b{color:var(--cy)}
+.ai-analysis code{color:var(--gr);background:rgba(0,245,160,.07);padding:1px 5px;border-radius:3px;font-size:.58rem}
+.ai-analysis .warn{color:var(--wa)}
+.ai-analysis .ok{color:var(--gr)}
+.ai-analysis .err{color:var(--re)}
+.ai-rule-card{background:var(--s2);border:1px solid var(--bd2);border-radius:9px;
+  padding:10px 12px;margin-bottom:7px;cursor:pointer;transition:border-color .2s}
+.ai-rule-card:hover{border-color:var(--cy)}
+.ai-rule-card:active{background:var(--s3)}
+.ai-rule-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.ai-rule-name{font-family:var(--R);font-weight:700;font-size:.78rem;color:var(--tx)}
+.ai-rule-badge{font-size:.48rem;padding:2px 7px;border-radius:4px;letter-spacing:1px;
+  font-family:var(--R);font-weight:700;text-transform:uppercase}
+.ai-rule-badge.r{background:rgba(255,140,0,.15);color:var(--wa)}
+.ai-rule-badge.p{background:rgba(0,245,160,.12);color:var(--gr)}
+.ai-rule-badge.k{background:rgba(0,245,160,.12);color:var(--gr)}
+.ai-rule-badge.pos{background:rgba(0,216,255,.12);color:var(--cy)}
+.ai-rule-badge.j{background:rgba(100,100,255,.15);color:#aaf}
+.ai-rule-badge.g{background:rgba(100,100,100,.15);color:var(--mu2)}
+.ai-rule-detail{font-size:.57rem;color:var(--mu2);line-height:1.8}
+.ai-rule-detail code{color:var(--tx);background:rgba(255,255,255,.06);
+  padding:1px 5px;border-radius:3px;font-size:.54rem}
+.ai-rule-apply{font-size:.52rem;color:var(--cy);font-family:var(--R);font-weight:700;
+  letter-spacing:.5px;margin-top:5px;display:flex;align-items:center;gap:4px}
+.ai-sep{height:1px;background:linear-gradient(90deg,var(--bd),transparent);margin:8px 0}
+.ai-key-row{display:flex;gap:7px;margin-bottom:10px;align-items:center}
+.ai-key-input{flex:1;margin-bottom:0!important;font-family:monospace;font-size:.72rem!important}
+.ai-key-hint{font-size:.52rem;color:var(--mu);line-height:1.6;margin-bottom:8px}
+.ai-key-hint a{color:var(--cy)}
+#ai-key-status{font-size:.55rem;letter-spacing:.5px;flex-shrink:0}
+#ai-key-status.ok{color:var(--gr)}
+#ai-key-status.miss{color:var(--wa)}
+
+/* ══ AI INLINE CHAT (dentro do cadastro) ══ */
+.ai-chat-panel{background:linear-gradient(135deg,rgba(0,216,255,.05) 0%,rgba(0,245,160,.04) 100%);
+  border:1px solid rgba(0,216,255,.28);border-radius:12px;margin-bottom:10px;
+  overflow:hidden;position:relative}
+.ai-chat-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--cy),var(--gr));opacity:.6}
+.ai-chat-header{display:flex;align-items:center;justify-content:space-between;
+  padding:11px 14px 10px;cursor:pointer;user-select:none}
+.ai-chat-header:active{background:rgba(0,216,255,.06)}
+.ai-chat-title{font-family:var(--R);font-weight:700;font-size:.68rem;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--cy);display:flex;align-items:center;gap:8px}
+.ai-chat-toggle{font-size:.65rem;color:var(--mu2);transition:transform .25s;line-height:1}
+.ai-chat-toggle.open{transform:rotate(180deg)}
+.ai-chat-body{padding:0 12px 12px;display:none}
+.ai-chat-body.open{display:block}
+
+/* Histórico de mensagens */
+.ai-chat-msgs{max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:7px;
+  margin-bottom:9px;padding-right:2px}
+.ai-chat-msgs::-webkit-scrollbar{width:2px}
+.ai-chat-msgs::-webkit-scrollbar-thumb{background:var(--bd)}
+.ai-msg{border-radius:9px;padding:8px 11px;font-size:.6rem;line-height:1.75;
+  max-width:92%;animation:fadeUp .15s ease}
+.ai-msg.user{background:rgba(0,216,255,.1);border:1px solid rgba(0,216,255,.2);
+  color:var(--tx);align-self:flex-end;text-align:right}
+.ai-msg.ai{background:var(--s2);border:1px solid var(--bd2);color:var(--tx);align-self:flex-start}
+.ai-msg.ai b{color:var(--cy)}
+.ai-msg.ai code{color:var(--gr);background:rgba(0,245,160,.08);
+  padding:1px 4px;border-radius:3px;font-size:.55rem}
+.ai-msg.sys{background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.15);
+  color:var(--gr);align-self:center;font-size:.54rem;text-align:center;letter-spacing:.3px}
+.ai-msg.err{background:rgba(255,51,85,.07);border:1px solid rgba(255,51,85,.2);
+  color:var(--re);align-self:flex-start;font-size:.57rem}
+.ai-msg-typing{display:flex;align-items:center;gap:5px;padding:7px 11px;
+  background:var(--s2);border:1px solid var(--bd2);border-radius:9px;align-self:flex-start}
+.ai-msg-typing span{font-size:.56rem;color:var(--mu2)}
+
+/* Input chat */
+.ai-chat-input-row{display:flex;gap:7px;align-items:flex-end}
+.ai-chat-input{flex:1;background:var(--bg);border:1px solid var(--bd);border-radius:8px;
+  color:var(--tx);font-family:var(--F);font-size:.78rem;padding:9px 11px;
+  outline:none;resize:none;min-height:38px;max-height:100px;line-height:1.5;
+  transition:border-color .2s;margin-bottom:0!important}
+.ai-chat-input:focus{border-color:var(--cy)}
+.ai-chat-send{background:var(--cy);border:none;border-radius:8px;color:#000;
+  font-family:var(--R);font-weight:700;font-size:.72rem;padding:9px 13px;
+  cursor:pointer;flex-shrink:0;align-self:flex-end;transition:opacity .15s;
+  letter-spacing:.5px;white-space:nowrap}
+.ai-chat-send:active{opacity:.75}
+.ai-chat-send:disabled{opacity:.4;cursor:not-allowed}
+.ai-chat-hints{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.ai-hint-chip{background:rgba(0,216,255,.08);border:1px solid rgba(0,216,255,.2);
+  border-radius:12px;padding:4px 10px;font-size:.52rem;color:var(--cy);
+  cursor:pointer;font-family:var(--R);font-weight:600;letter-spacing:.5px;
+  transition:background .15s;white-space:nowrap}
+.ai-hint-chip:active{background:rgba(0,216,255,.18)}
+.ai-chat-key-warn{font-size:.56rem;color:var(--wa);padding:8px 2px 4px;
+  display:flex;align-items:center;gap:6px;line-height:1.5}
+.ai-chat-key-warn a{color:var(--cy);cursor:pointer;text-decoration:underline}
+</style>
+</head>
+<body>
+<div id="flash"></div>
+<div id="toast"></div>
+
+<!-- MODAL CONFIRMAR -->
+<div class="mbg" id="mdl-conf">
+  <div class="md">
+    <h3 id="mc-title"></h3>
+    <p id="mc-msg"></p>
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="mcClose()">Cancelar</button>
+      <button class="btn btn-re" id="mc-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR ITEM -->
+<div class="mbg" id="mdl-edit">
+  <div class="md">
+    <h3>Editar Item</h3>
+    <label>Referência</label>
+    <input id="ed-ref" type="text" autocomplete="off">
+    <label>Quantidade Total</label>
+    <input id="ed-qty" type="number" min="1">
+    <label>Fornecedor</label>
+    <input id="ed-forn" type="text">
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="editClose()">Cancelar</button>
+      <button class="btn btn-cy" onclick="editSave()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR ITEM HISTÓRICO -->
+<div class="mbg" id="mdl-hist-edit">
+  <div class="md">
+    <h3>Editar Item do Histórico</h3>
+    <label>Referência</label>
+    <input id="hed-ref" type="text" autocomplete="off">
+    <label>Quantidade Total</label>
+    <input id="hed-qty" type="number" min="1">
+    <label>Fornecedor</label>
+    <input id="hed-forn" type="text">
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="histEditClose()">Cancelar</button>
+      <button class="btn btn-cy" onclick="histEditSave()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADICIONAR ITEM HISTÓRICO -->
+<div class="mbg" id="mdl-hist-add">
+  <div class="md">
+    <h3>Adicionar Item ao Histórico</h3>
+    <label>Referência</label>
+    <input id="hadd-ref" type="text" autocomplete="off" placeholder="Ex: 4901974V000">
+    <label>Quantidade</label>
+    <input id="hadd-qty" type="number" min="1" placeholder="0">
+    <label>Fornecedor</label>
+    <input id="hadd-forn" type="text" placeholder="Opcional">
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="histAddClose()">Cancelar</button>
+      <button class="btn btn-gr" onclick="histAddSave()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: DASHBOARD
+═══════════════════════════════════ -->
+<div class="pg" id="pg-dash">
+  <div class="body" style="padding:0;overflow-y:auto">
+
+    <div class="dash-hero">
+      <div class="dash-logo">Recebe<span>+</span></div>
+      <div class="dash-tagline">Controle de Recebimento</div>
+      <div class="dash-time" id="dash-clk">--:--:--</div>
+    </div>
+
+    <!-- Aviso storage (dentro do dashboard) -->
+    <div id="storage-warn">⚠ Armazenamento local quase cheio. Exporte e exclua contagens antigas para continuar salvando.</div>
+
+    <!-- Sessão ativa -->
+    <div class="sess-pill" id="sess-pill" onclick="sessPillClick()">
+      <div class="sdot" id="sdot"></div>
+      <div class="sinfo">
+        <div class="sname" id="sname">Nenhuma sessão ativa</div>
+        <div class="sdet"  id="sdet">Toque em Iniciar Contagem para começar</div>
+      </div>
+      <div style="font-size:.65rem;color:var(--cy);font-family:var(--R);font-weight:600" id="sess-arrow">&#8250;</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="dash-stats">
+      <div class="dstat">   <div class="n" id="d-refs">0</div><div class="l">Refs</div></div>
+      <div class="dstat g"> <div class="n" id="d-cxas">0</div><div class="l">Peças</div></div>
+      <div class="dstat o"> <div class="n" id="d-hist">0</div><div class="l">Contagens</div></div>
+    </div>
+
+    <!-- Botões -->
+    <div class="dash-grid">
+      <div class="dbtn cy" id="dbtn-scan" onclick="navTo('pg-scan')">
+        <div class="dbtn-ico" id="dbtn-scan-ico">&#9654;</div>
+        <div class="dbtn-lbl" id="dbtn-scan-lbl">Iniciar Contagem</div>
+        <div class="dbtn-sub" id="dbtn-scan-sub">Escanear etiquetas</div>
+      </div>
+      <div class="dbtn gr" onclick="navTo('pg-lista')">
+        <div class="dbtn-ico">&#9783;</div>
+        <div class="dbtn-lbl">Contagens</div>
+        <div class="dbtn-sub" id="db-lista-sub">Sessão atual</div>
+      </div>
+      <div class="dbtn wa" onclick="navTo('pg-hist')">
+        <div class="dbtn-ico">&#9636;</div>
+        <div class="dbtn-lbl">Histórico</div>
+        <div class="dbtn-sub" id="db-hist-sub">Contagens salvas</div>
+      </div>
+      <div class="dbtn re" onclick="navTo('pg-forn')">
+        <div class="dbtn-ico">&#9776;</div>
+        <div class="dbtn-lbl">Fornecedores</div>
+        <div class="dbtn-sub">Padrões e formatos</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: SCANNER / CONTAGEM
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-scan">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Contagem</div>
+    <div class="hdr-side">
+      <div id="lp-badge" style="display:none;font-size:.5rem;background:rgba(0,216,255,.1);
+        border:1px solid rgba(0,216,255,.3);color:var(--cy);padding:2px 7px;border-radius:3px;
+        letter-spacing:1.5px;font-family:var(--R);font-weight:700">LINKPLAS</div>
+      <div id="spi-badge" style="display:none;font-size:.5rem;background:rgba(255,140,0,.1);
+        border:1px solid rgba(255,140,0,.4);color:var(--wa);padding:2px 7px;border-radius:3px;
+        letter-spacing:1.5px;font-family:var(--R);font-weight:700">SPI · OCR</div>
+      <div id="cust-badge" style="display:none;font-size:.5rem;background:rgba(0,245,160,.08);
+        border:1px solid rgba(0,245,160,.3);color:var(--gr);padding:2px 7px;border-radius:3px;
+        letter-spacing:1.5px;font-family:var(--R);font-weight:700"></div>
+    </div>
+  </div>
+  <div class="body" id="scan-body">
+
+    <!-- Iniciar sessão -->
+    <div class="card" id="card-sess">
+      <div class="ctit">Nova Sessão</div>
+      <label>Fornecedor</label>
+      <input id="inp-forn" type="text" placeholder="Ex: LINKPLAS" autocomplete="off"
+        autocorrect="off" autocapitalize="characters">
+      <label>NF / Pedido (opcional)</label>
+      <input id="inp-nf" type="text" placeholder="Ex: NF-001234">
+      <button class="btn btn-cy" onclick="sessStart()">Iniciar Sessão</button>
+      <button class="btn btn-x"  onclick="navBack()">Cancelar</button>
+    </div>
+
+    <!-- Câmera -->
+    <div class="card" id="card-cam" style="display:none">
+      <div class="ctit">
+        <span id="cam-mode-label">Leitura QR</span>
+        <span id="sess-tag" style="color:var(--gr);font-size:.7rem"></span>
+      </div>
+
+      <!-- Toggle QR / OCR (aparece só pra SPI) -->
+      <div class="mode-toggle" id="mode-toggle" style="display:none">
+        <button class="mode-btn active" id="btn-mode-qr"  onclick="setMode('qr')">&#9654; QR Code</button>
+        <button class="mode-btn"        id="btn-mode-ocr" onclick="setMode('ocr')">&#9632; OCR Etiqueta</button>
+      </div>
+
+      <div id="cam-wrap">
+        <video id="vid" autoplay muted playsinline webkit-playsinline></video>
+        <div class="cam-ov">
+          <div class="sf">
+            <div class="sl"></div>
+            <div class="sc tl"></div><div class="sc tr"></div>
+            <div class="sc bl"></div><div class="sc br"></div>
+          </div>
+        </div>
+        <div id="cam-cnt"></div>
+        <div class="cam-ph" id="cam-ph">
+          <div class="cph-i">&#9632;</div>
+          <div class="cph-t">Toque em Abrir Câmera</div>
+        </div>
+        <!-- OCR processing overlay -->
+        <div id="ocr-overlay">
+          <div class="ocr-spin"></div>
+          <div class="ocr-prog" id="ocr-prog">Processando OCR...</div>
+          <div class="ocr-hint">Mantenha a etiqueta centralizada e firme</div>
+        </div>
+      </div>
+
+      <div id="cam-st"></div>
+      <!-- OCR countdown bar -->
+      <div id="ocr-countdown"><div id="ocr-countdown-fill"></div></div>
+      <div id="engine-badge"></div>
+
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn btn-cy" id="btn-open"  onclick="camStart()">Abrir Câmera</button>
+        <button class="btn btn-x"  id="btn-close" onclick="camStop()" style="display:none;max-width:90px">Fechar</button>
+        <button class="btn btn-x"  id="btn-torch" onclick="torchTog()" style="display:none;max-width:70px;font-size:.7rem">Luz</button>
+      </div>
+
+      <!-- Botão captura OCR (força leitura manual, modo OCR) -->
+      <div id="ocr-capture-row" style="display:none;margin-bottom:8px">
+        <button class="btn btn-wa" onclick="ocrCapture(false)" style="letter-spacing:1.5px">
+          📷 Forçar Leitura Agora
+        </button>
+        <div id="ocr-raw-box"></div>
+      </div>
+
+      <!-- QR Manual Input fallback -->
+      <div class="qr-manual">
+        <div class="ctit">&#9998; Digitar código QR manualmente</div>
+        <input id="qr-text-input" type="text" placeholder="Cole ou digite o conteúdo do QR Code..."
+          autocomplete="off" autocorrect="off" style="margin-bottom:6px">
+        <button class="btn btn-wa" onclick="processManualQR()" style="margin-bottom:0;padding:9px;font-size:.75rem">Processar Código</button>
+      </div>
+
+      <!-- QR Result -->
+      <div class="qr-box" id="qr-box">
+        <div class="acc-bar" id="acc-bar"></div>
+        <div class="rr"><span class="rk">Referência</span>   <span class="rv ref" id="r-ref">—</span></div>
+        <div class="rr">
+          <span class="rk">Peças / volume</span>
+          <span class="rv qty" id="r-qty">—</span>
+        </div>
+        <!-- Volumes input -->
+        <div class="rr" style="gap:10px;align-items:center">
+          <span class="rk" style="white-space:nowrap">Nº de volumes</span>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+            <button onclick="changeVols(-1)" style="background:var(--s3);border:1px solid var(--bd);
+              color:var(--tx);border-radius:6px;width:30px;height:30px;font-size:1.1rem;
+              cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">−</button>
+            <input id="r-vols" type="number" min="1" value="1"
+              oninput="recalcTotal()"
+              style="width:54px;text-align:center;margin:0;padding:5px 4px;font-size:1rem;
+                font-family:var(--R);font-weight:700;color:var(--cy)">
+            <button onclick="changeVols(1)"  style="background:var(--s3);border:1px solid var(--bd);
+              color:var(--tx);border-radius:6px;width:30px;height:30px;font-size:1.1rem;
+              cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
+          </div>
+        </div>
+        <!-- Total calculado -->
+        <div class="rr" style="background:rgba(0,245,160,.05);border-radius:6px;padding:6px 8px;margin-top:4px;border:none">
+          <span class="rk" style="color:var(--gr)">Total (peças × volumes)</span>
+          <span class="rv" id="r-total" style="color:var(--gr);font-family:var(--R);font-weight:700;font-size:1.4rem">—</span>
+        </div>
+        <div class="rr" id="r-acc-row" style="display:none">
+          <span class="rk">Acumulado anterior</span><span class="rv tot" id="r-acc">—</span>
+        </div>
+        <div class="rr"><span class="rk">Fornecedor</span>   <span class="rv" id="r-forn">—</span></div>
+        <div class="rr" style="border:none">
+          <span class="rk">Dado bruto</span>
+          <span class="rv" id="r-raw" style="font-size:.53rem;color:var(--mu2);
+            text-align:right;max-width:58%;word-break:break-all">—</span>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-gr" onclick="itemConfirm()">Confirmar</button>
+          <button class="btn btn-x"  onclick="itemCancel()">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Entrada manual -->
+    <div class="card" id="card-manual" style="display:none">
+      <div class="ctit">Entrada Manual</div>
+      <label>Referência</label>
+      <input id="m-ref" type="text" placeholder="Ex: 4901974V000" autocomplete="off">
+      <div class="g2">
+        <div><label>Quantidade</label><input id="m-qty" type="number" placeholder="0" min="1"></div>
+        <div><label>Fornecedor</label><input id="m-forn" type="text" placeholder="Auto"></div>
+      </div>
+      <button class="btn btn-cy" onclick="manualAdd()">Adicionar Item</button>
+    </div>
+
+    <!-- Ações sessão -->
+    <div id="card-acoes" style="display:none">
+      <div class="sep"></div>
+      <button class="btn btn-gr" onclick="sessSave()">Finalizar e Salvar Contagem</button>
+      <button class="btn btn-cy" style="font-size:.75rem;padding:9px" onclick="exportSessAtiva()">Exportar Sessão Atual (CSV)</button>
+      <button class="btn btn-re" style="font-size:.75rem;padding:9px"
+        onclick="mc('Encerrar Sessão','A sessão será encerrada sem salvar. Os dados atuais serão perdidos.',sessCancel)">
+        Descartar Sessão
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: LISTA (sessão atual)
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-lista">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Contagens</div>
+    <div class="hdr-side">
+      <button style="background:none;border:none;color:var(--re);font-family:var(--R);
+        font-size:.65rem;letter-spacing:1px;cursor:pointer"
+        onclick="mc('Limpar Lista','Todos os itens da sessão atual serão removidos.',listaClear)">
+        Limpar
+      </button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="stats">
+      <div class="stat">  <div class="n" id="ls-scans">0</div><div class="l">Scans</div></div>
+      <div class="stat g"><div class="n" id="ls-cxas">0</div> <div class="l">Peças</div></div>
+      <div class="stat o"><div class="n" id="ls-refs">0</div> <div class="l">Refs</div></div>
+    </div>
+    <input id="search" type="text" placeholder="Buscar referência..."
+      oninput="renderList()" style="margin-bottom:8px">
+    <div class="sort-ctrl">
+      <button class="sort-btn active" id="sort-az"  onclick="setSort('az')">A→Z</button>
+      <button class="sort-btn"        id="sort-qty" onclick="setSort('qty')">Maior Qtd</button>
+      <button class="sort-btn"        id="sort-rec" onclick="setSort('rec')">Recentes</button>
+    </div>
+    <div class="ilist" id="ilist">
+      <div class="empty"><div class="ei">· · ·</div><div class="et">Nenhum item registrado</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: HISTÓRICO
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-hist">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Histórico</div>
+    <div class="hdr-side"></div>
+  </div>
+  <div class="body">
+    <input id="hist-search" type="text" placeholder="Buscar fornecedor ou NF..."
+      oninput="renderHist()" style="margin-bottom:8px">
+    <div class="hist-filter" id="hist-filter">
+      <div class="hftab active" onclick="setHistFilter('todos')">Todos</div>
+    </div>
+    <div class="ilist" id="hist-list">
+      <div class="empty"><div class="ei">· · ·</div><div class="et">Nenhuma contagem salva</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: DETALHE HISTÓRICO
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-hist-det">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl" id="hdet-title">Contagem</div>
+    <div class="hdr-side">
+      <button id="btn-hdet-edit" style="background:none;border:none;color:var(--cy);font-family:var(--R);
+        font-size:.65rem;letter-spacing:1px;cursor:pointer;display:none"
+        onclick="toggleHistEdit()">Editar</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="stats">
+      <div class="stat">  <div class="n" id="hd-scans">0</div><div class="l">Scans</div></div>
+      <div class="stat g"><div class="n" id="hd-cxas">0</div> <div class="l">Peças</div></div>
+      <div class="stat o"><div class="n" id="hd-refs">0</div> <div class="l">Refs</div></div>
+    </div>
+    <div id="hdet-info" style="font-size:.62rem;color:var(--mu2);margin-bottom:10px;line-height:1.8"></div>
+    <!-- Edit toolbar (hidden by default) -->
+    <div id="hdet-edit-bar" style="display:none;margin-bottom:10px">
+      <div class="row">
+        <button class="btn btn-cy" style="font-size:.72rem;padding:9px;margin-bottom:0"
+          onclick="openHistAddItem()">+ Adicionar Item</button>
+        <button class="btn btn-x"  style="font-size:.72rem;padding:9px;margin-bottom:0;color:var(--re)"
+          onclick="toggleHistEdit()">Concluir Edição</button>
+      </div>
+    </div>
+    <div class="ilist" id="hdet-list"></div>
+    <div style="margin-top:10px">
+      <div class="card" id="hdet-exp" style="display:none">
+        <div class="ctit">Exportar</div>
+        <div class="exbox" id="hdet-exbox"></div>
+        <button class="btn btn-gr" onclick="exportHistCSV()">Baixar CSV</button>
+        <button class="btn btn-x"  onclick="copyHist()">Copiar Texto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: FORNECEDORES
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-forn">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Fornecedores</div>
+    <div class="hdr-side">
+      <button style="background:none;border:none;color:var(--cy);font-family:var(--R);
+        font-size:.65rem;letter-spacing:1px;cursor:pointer" onclick="fornTabShow('cadastrar')">+ Novo</button>
+    </div>
+  </div>
+  <div class="body">
+
+    <!-- Tabs -->
+    <div class="forn-tabs">
+      <button class="forn-tab active" id="ftab-cadastrados" onclick="fornTabShow('cadastrados')">Cadastrados</button>
+      <button class="forn-tab"        id="ftab-cadastrar"   onclick="fornTabShow('cadastrar')">+ Novo</button>
+      <button class="forn-tab"        id="ftab-api"         onclick="fornTabShow('api')">API Vision</button>
+      <button class="forn-tab"        id="ftab-ia"          onclick="fornTabShow('ia')">🤖 IA</button>
+    </div>
+
+    <!-- ══ TAB: CADASTRADOS ══ -->
+    <div id="ftab-body-cadastrados">
+      <div id="forn-list-empty" class="empty" style="display:none">
+        <div class="ei">· · ·</div>
+        <div class="et">Nenhum fornecedor cadastrado</div>
+      </div>
+      <div id="forn-list"></div>
+
+      <div class="card" style="margin-top:4px">
+        <div class="ctit">Padrões Internos (fixos)</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div class="forn-card" style="cursor:default;margin-bottom:0">
+            <div class="forn-card-head">
+              <div class="forn-card-name">LINKPLAS</div>
+              <span class="forn-card-type">REGEX</span>
+            </div>
+            <div class="forn-card-meta">
+              Ref: <code style="font-size:.52rem">P{REF}</code> · Qtd: <code style="font-size:.52rem">Q000{QTY}000</code><br>
+              Exemplo: <code style="font-size:.52rem">P4901974V000 Q000010000</code> → Ref 4901974V000 · Qtd 10
+            </div>
+          </div>
+          <div class="forn-card" style="cursor:default;margin-bottom:0">
+            <div class="forn-card-head">
+              <div class="forn-card-name">SPI</div>
+              <span class="forn-card-type" style="background:rgba(255,140,0,.1);color:var(--wa)">OCR</span>
+            </div>
+            <div class="forn-card-meta">
+              Ref: <code style="font-size:.52rem">I</code> + 11 dígitos + letra · Qtd: campo <code style="font-size:.52rem">Qtd</code><br>
+              Requer Google Cloud Vision API (configurar na aba API Vision)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ TAB: CADASTRAR ══ -->
+    <div id="ftab-body-cadastrar" style="display:none">
+
+      <!-- ── PAINEL IA INLINE ── -->
+      <div class="ai-chat-panel" id="ai-inline-panel">
+        <div class="ai-chat-header" onclick="aiChatToggle()">
+          <div class="ai-chat-title">
+            <span>🤖</span> Assistente IA
+            <span id="ai-inline-status" class="key-src none" style="font-size:.44rem">SEM CHAVE</span>
+          </div>
+          <span class="ai-chat-toggle" id="ai-chat-toggle-ico">▼</span>
+        </div>
+        <div class="ai-chat-body open" id="ai-chat-body">
+
+          <!-- Aviso sem chave -->
+          <div id="ai-chat-nokey" style="display:none">
+            <div class="ai-chat-key-warn">
+              ⚠ Chave OpenAI não configurada.
+              <a onclick="fornTabShow('ia')">Configurar na aba 🤖 IA</a>
+            </div>
+          </div>
+
+          <!-- Histórico -->
+          <div class="ai-chat-msgs" id="ai-chat-msgs"></div>
+
+          <!-- Chips de sugestão rápida -->
+          <div class="ai-chat-hints" id="ai-chat-hints">
+            <span class="ai-hint-chip" onclick="aiChatHint('A referência está errada, deveria começar com a letra X')">Referência incorreta</span>
+            <span class="ai-hint-chip" onclick="aiChatHint('A quantidade está vindo errada, o valor correto é Y')">Quantidade errada</span>
+            <span class="ai-hint-chip" onclick="aiChatHint('Ignore os primeiros N caracteres do código')">Ignorar prefixo</span>
+            <span class="ai-hint-chip" onclick="aiChatHint('Testar com este exemplo: ')">Novo exemplo</span>
+          </div>
+
+          <!-- Input -->
+          <div class="ai-chat-input-row">
+            <textarea id="ai-chat-input" class="ai-chat-input" rows="1"
+              placeholder="Descreva o que ajustar ou cole um exemplo de etiqueta..."
+              onkeydown="aiChatKey(event)" oninput="aiChatResize(this)"></textarea>
+            <button class="ai-chat-send" id="ai-chat-send-btn" onclick="aiChatSend()">Enviar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card hi">
+        <div class="ctit">Dados do Fornecedor</div>
+        <label>Nome do Fornecedor <span style="color:var(--re)">*</span></label>
+        <input id="fn-nome" type="text" placeholder="Ex: ACME INDUSTRIA" autocapitalize="characters" autocomplete="off">
+
+        <label>Tipo de Etiqueta / Parser</label>
+        <select id="fn-tipo" onchange="fornTipoChange()">
+          <option value="generico">Genérico (texto livre, pipe, JSON, chave-valor)</option>
+          <option value="regex">Regex Personalizado</option>
+          <option value="pipe">Pipe  REF|DESC|QTD|FORN</option>
+          <option value="kv">Chave-Valor  REF=x;QTD=10</option>
+          <option value="json">JSON  {"ref":"x","qty":10}</option>
+          <option value="posicional">Posicional (extrair por posição fixa)</option>
+        </select>
+      </div>
+
+      <!-- Seção Regex -->
+      <div class="card" id="fs-regex" style="display:none">
+        <div class="ctit">Configuração · Regex</div>
+        <div class="parser-section">
+          <div class="parser-section-title">Padrão da Referência</div>
+          <div class="parser-hint">Regex para capturar a referência. Use <b>grupo 1</b> <code>(...)</code> para o valor.<br>
+            Ex: <code>P([A-Z0-9]+)</code> captura após "P"</div>
+          <label>Regex Referência <span style="color:var(--re)">*</span></label>
+          <input id="fn-ref-regex" type="text" placeholder="Ex: P([A-Z0-9]{4,15})" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="parser-section">
+          <div class="parser-section-title">Padrão da Quantidade</div>
+          <div class="parser-hint">Regex para capturar a quantidade. Use <b>grupo 1</b> para o número.<br>
+            Ex: <code>Q\d{3}(\d{3})\d{3}</code> captura os 3 dígitos do meio de Q000010000</div>
+          <label>Regex Quantidade</label>
+          <input id="fn-qty-regex" type="text" placeholder="Ex: Q\d{3}(\d{3})\d{3}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="tog-row" style="margin-top:4px">
+          <span class="tog-lbl">Aplicar transformação na quantidade (dividir por 10, 100...)</span>
+        </div>
+        <div class="g2">
+          <div>
+            <label>Dividir Qtd por</label>
+            <input id="fn-qty-div" type="number" value="1" min="1" placeholder="1">
+          </div>
+          <div>
+            <label>Prefixo da Ref (remover)</label>
+            <input id="fn-ref-strip" type="text" placeholder="Ex: P" autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <!-- Seção Pipe -->
+      <div class="card" id="fs-pipe" style="display:none">
+        <div class="ctit">Configuração · Pipe</div>
+        <div class="parser-hint">Formato: <code>campo1|campo2|campo3...</code><br>
+          Defina em qual posição (índice 0 = primeiro) está cada informação.</div>
+        <div class="g3">
+          <div><label>Índice Ref</label><input id="fn-pipe-ref" type="number" value="0" min="0"></div>
+          <div><label>Índice Qtd</label><input id="fn-pipe-qty" type="number" value="2" min="0"></div>
+          <div><label>Separador</label><input id="fn-pipe-sep" type="text" value="|" maxlength="3" autocomplete="off"></div>
+        </div>
+        <label>Índice Descrição (opcional, -1 = ignorar)</label>
+        <input id="fn-pipe-desc" type="number" value="1" min="-1">
+      </div>
+
+      <!-- Seção Chave-Valor -->
+      <div class="card" id="fs-kv" style="display:none">
+        <div class="ctit">Configuração · Chave-Valor</div>
+        <div class="parser-hint">Formato: <code>CHAVE=valor;CHAVE2=valor2</code><br>
+          Informe os nomes das chaves usadas neste fornecedor.</div>
+        <div class="g2">
+          <div><label>Chave da Referência</label><input id="fn-kv-ref" type="text" value="REF" autocomplete="off"></div>
+          <div><label>Chave da Quantidade</label><input id="fn-kv-qty" type="text" value="QTD" autocomplete="off"></div>
+        </div>
+        <div class="g2">
+          <div><label>Separador de pares</label><input id="fn-kv-sep" type="text" value=";" maxlength="3" autocomplete="off"></div>
+          <div><label>Separador chave=val</label><input id="fn-kv-eq" type="text" value="=" maxlength="3" autocomplete="off"></div>
+        </div>
+      </div>
+
+      <!-- Seção Posicional -->
+      <div class="card" id="fs-posicional" style="display:none">
+        <div class="ctit">Configuração · Posicional</div>
+        <div class="parser-hint">Extrai valores por posição fixa no texto do QR code.<br>
+          Posições começam em 0. <code>Início:Fim</code> (fim exclusivo).</div>
+        <div class="parser-section">
+          <div class="parser-section-title">Referência</div>
+          <div class="g2">
+            <div><label>Início (pos)</label><input id="fn-pos-ref-s" type="number" value="0" min="0"></div>
+            <div><label>Fim (pos)</label><input id="fn-pos-ref-e" type="number" value="12" min="1"></div>
+          </div>
+        </div>
+        <div class="parser-section" style="margin-bottom:0">
+          <div class="parser-section-title">Quantidade</div>
+          <div class="g2">
+            <div><label>Início (pos)</label><input id="fn-pos-qty-s" type="number" value="12" min="0"></div>
+            <div><label>Fim (pos)</label><input id="fn-pos-qty-e" type="number" value="17" min="1"></div>
+          </div>
+          <label>Dividir Qtd por</label>
+          <input id="fn-pos-div" type="number" value="1" min="1">
+        </div>
+      </div>
+
+      <!-- Teste de parser -->
+      <div class="card">
+        <div class="ctit">Testar Parser</div>
+        <label>Cole um QR/código de exemplo deste fornecedor</label>
+        <textarea id="fn-test-raw" placeholder="Cole aqui o conteúdo do QR Code ou etiqueta..." style="min-height:72px"></textarea>
+        <button class="btn btn-x" onclick="fornTestParser()" style="margin-bottom:8px;font-size:.75rem;padding:9px">
+          ▶ Testar Extração
+        </button>
+        <div id="forn-test-box"></div>
+      </div>
+
+      <!-- Salvar -->
+      <div class="row" style="margin-bottom:16px">
+        <button class="btn btn-gr" onclick="fornSave()">Salvar Fornecedor</button>
+        <button class="btn btn-x"  onclick="fornTabShow('cadastrados')" style="max-width:100px">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- ══ TAB: IA ASSISTENTE ══ -->
+    <div id="ftab-body-ia" style="display:none">
+
+      <!-- Chave API -->
+      <div class="card hi">
+        <div class="ctit" style="margin-bottom:10px">🤖 Assistente IA
+          <span id="ai-key-status" class="key-src none">SEM CHAVE</span>
+        </div>
+        <div class="ai-key-hint">
+          Cole sua chave <b style="color:var(--cy)">OpenAI</b> para ativar o assistente de IA.<br>
+          Obtenha em: <code style="font-size:.52rem;color:var(--cy)">platform.openai.com → API Keys</code>
+        </div>
+        <div class="ai-key-row">
+          <input id="ai-api-key" class="ai-key-input" type="password"
+            placeholder="sk-..." autocomplete="off" autocorrect="off"
+            oninput="aiKeyCheck()">
+        </div>
+        <div class="row">
+          <button class="btn btn-cy" onclick="aiKeySave()" style="font-size:.72rem;padding:9px">Salvar Chave</button>
+          <button class="btn btn-x"  onclick="aiKeyClear()" style="font-size:.72rem;padding:9px;max-width:80px">Limpar</button>
+        </div>
+      </div>
+
+      <!-- Entrada da etiqueta -->
+      <div class="card">
+        <div class="ctit">Analisar Etiqueta com IA</div>
+
+        <label>Nome do Fornecedor <span style="color:var(--re)">*</span></label>
+        <input id="ai-forn-nome" type="text" placeholder="Ex: ACME INDUSTRIA"
+          autocapitalize="characters" autocomplete="off">
+
+        <label>Exemplo real de etiqueta / QR Code <span style="color:var(--re)">*</span></label>
+        <textarea id="ai-label-raw" placeholder="Cole o conteúdo bruto da etiqueta ou QR Code...&#10;Ex: P4901974V000 Q000010000 1T01 S049..." style="min-height:80px"></textarea>
+
+        <label>Regras iniciais (opcional — descreva o que já sabe)</label>
+        <textarea id="ai-user-rules" placeholder="Ex: Referência começa com P, quantidade está em Q000XXX000" style="min-height:50px;margin-bottom:9px"></textarea>
+
+        <button class="btn btn-cy" onclick="aiAnalyze()" id="ai-analyze-btn">
+          🤖 Analisar com IA
+        </button>
+      </div>
+
+      <!-- Resultado -->
+      <div class="card" id="ai-result-card" style="display:none">
+        <div class="ctit">Resultado da Análise</div>
+
+        <div class="ai-thinking" id="ai-thinking">
+          <div class="ai-dots">
+            <div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div>
+          </div>
+          <span style="font-size:.62rem;color:var(--mu2)">Analisando etiqueta com IA...</span>
+        </div>
+
+        <div class="ai-result" id="ai-result">
+
+          <div class="ai-section">
+            <div class="ai-section-lbl">📋 Análise da Etiqueta</div>
+            <div class="ai-analysis" id="ai-analysis-text"></div>
+          </div>
+
+          <div class="ai-sep"></div>
+
+          <div class="ai-section">
+            <div class="ai-section-lbl">⚙️ Regras Sugeridas — toque para aplicar</div>
+            <div id="ai-rules-list"></div>
+          </div>
+
+          <div class="ai-sep" id="ai-validation-sep" style="display:none"></div>
+          <div class="ai-section" id="ai-validation-section" style="display:none">
+            <div class="ai-section-lbl">✅ Validação das Suas Regras</div>
+            <div class="ai-analysis" id="ai-validation-text"></div>
+          </div>
+
+          <div class="ai-sep" id="ai-rec-sep" style="display:none"></div>
+          <div class="ai-section" id="ai-recommendations-section" style="display:none">
+            <div class="ai-section-lbl">💡 Recomendações</div>
+            <div class="ai-analysis" id="ai-recommendations-text"></div>
+          </div>
+
+          <button class="btn btn-gr" id="ai-go-register" onclick="aiGoToRegister()" style="display:none;margin-top:6px">
+            ✓ Ir para Cadastrar com estas Regras
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ══ TAB: API VISION ══ -->
+    <div id="ftab-body-api" style="display:none">
+      <div class="card hi">
+        <div class="ctit">&#9670; Google Cloud Vision · OCR SPI
+          <span id="vision-status" class="key-src none">SEM CHAVE</span>
+        </div>
+        <div class="abox" id="emb-key-info" style="display:none">
+          ✓ Chave embutida no código está ativa. Para trocar, edite a constante <code>EMBEDDED_VISION_KEY</code> no início do HTML.
+        </div>
+        <div class="ibox" style="margin-bottom:10px">
+          Usado para ler etiquetas SPI via OCR preciso.<br>
+          <b>Free tier:</b> 1.000 leituras/mês gratuitas.<br>
+          <b>Como obter:</b> <code>console.cloud.google.com</code> → Vision API → Credenciais → API Key<br>
+          <b>Prioridade:</b> chave embutida no HTML → chave salva aqui → sem OCR
+        </div>
+        <label>API Key do Google Cloud Vision (salva localmente)</label>
+        <input id="vision-key-input" type="password" placeholder="AIzaSy..."
+          autocomplete="off" autocorrect="off" style="margin-bottom:6px;font-family:monospace;font-size:.75rem">
+        <div class="row">
+          <button class="btn btn-cy" onclick="visionKeySave()" style="margin-bottom:0">Salvar Chave</button>
+          <button class="btn btn-x"  onclick="visionKeyTest()" style="margin-bottom:0">Testar</button>
+          <button class="btn btn-re" onclick="visionKeyClear()" style="margin-bottom:0;max-width:80px;font-size:.7rem">Limpar</button>
+        </div>
+        <div id="vision-test-result" style="display:none;margin-top:8px;font-size:.62rem;
+          color:var(--mu2);line-height:1.7;padding:8px 10px;background:var(--bg);
+          border:1px solid var(--bd);border-radius:6px"></div>
+      </div>
+
+      <div class="card">
+        <div class="ctit">Padrão SPI · OCR</div>
+        <div class="ibox">
+          <b>Ativado automaticamente ao digitar SPI</b><br>
+          Referência: <code>I</code> + 11 dígitos + 1 letra<br>
+          Quantidade: campo <code>Qtd</code> seguido do número<br><br>
+          Exemplo de etiqueta:<br>
+          <code>I12345678901A</code><br>
+          <code>Qtd: 240</code><br>
+          Resultado: Ref <b>I12345678901A</b> · Qtd <b>240</b>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ctit">Padrão LINKPLAS</div>
+        <div class="ibox">
+          <b>Ativado automaticamente ao digitar LINKPLAS</b><br>
+          Referência: segmento <code>P{REF}</code> até o próximo espaço<br>
+          Quantidade: <code>Q000{QTY}000</code> — 3 dígitos centrais<br><br>
+          Exemplo:<br>
+          <code>S049... P4901974V000 Q000010000 1T...</code><br>
+          Resultado: Ref <b>4901974V000</b> · Qtd <b>10</b>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ctit">Outros Formatos Genéricos</div>
+        <div class="ibox"><b>Pipe</b><br><code>REF|DESCRICAO|QTD|FORNECEDOR</code></div>
+        <div class="ibox"><b>Chave-Valor</b><br><code>REF=x;QTD=10;FORN=y</code></div>
+        <div class="ibox"><b>JSON</b><br><code>{"ref":"x","qty":10}</code></div>
+        <div class="ibox" style="margin-bottom:0"><b>Texto livre</b><br>
+          Qualquer texto é aceito como referência (qtd = 1)
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL EDITAR FORNECEDOR CADASTRADO -->
+<div class="mbg" id="mdl-forn-edit">
+  <div class="md" style="max-width:400px;max-height:88vh;overflow-y:auto">
+    <h3 id="mfe-title">Editar Fornecedor</h3>
+    <label>Nome</label>
+    <input id="mfe-nome" type="text" autocapitalize="characters">
+    <label>Tipo de Parser</label>
+    <select id="mfe-tipo" disabled style="opacity:.5"><!-- read-only display --></select>
+    <div id="mfe-info" style="font-size:.6rem;color:var(--mu2);line-height:1.8;
+      padding:8px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;margin-bottom:10px"></div>
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="fornEditClose()">Cancelar</button>
+      <button class="btn btn-cy" onclick="fornEditSave()">Salvar Nome</button>
+    </div>
+    <button class="btn btn-re" style="margin-top:8px;font-size:.72rem;padding:9px"
+      onclick="fornEditDelete()">Excluir Fornecedor</button>
+  </div>
+</div>
+
+<canvas id="cv" style="display:none"></canvas>
+
+<script>
+/* ═══════════════════════════════════════════════
+   AVISO AO FECHAR COM SESSÃO ATIVA
+═══════════════════════════════════════════════ */
+window.addEventListener('beforeunload', e => {
+  if(session && Object.keys(grouped).length > 0){
+    e.preventDefault();
+    e.returnValue = 'Há uma sessão ativa com dados não salvos. Deseja sair?';
+    return e.returnValue;
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════ */
+let session   = null;   // { forn, nf, start }
+let items     = [];     // leituras individuais
+let grouped   = {};     // { ref: {ref,desc,qty,scans,forn} }
+let pending   = null;
+let camOn     = false;
+let camStream = null;
+let torchOn   = false;
+let readCnt   = 0;
+let raf       = null;
+let lastQR    = 0;
+let mcCb      = null;
+let editRef   = null;
+let viewHist  = null;
+let histEditMode = false;
+let histEditRef  = null;
+let pageStack = ['pg-dash'];
+let _sortMode = 'az';       // 'az' | 'qty' | 'rec'
+let _histFilter = 'todos';  // fornecedor filter
+
+/* ═══════════════════════════════════════════════
+   STORAGE — histórico persistente com verificação de tamanho
+═══════════════════════════════════════════════ */
+function histLoad(){ try{ return JSON.parse(localStorage.getItem('rcb_hist')||'[]'); }catch(e){ return []; } }
+
+function histSave(arr){
+  try{
+    const json = JSON.stringify(arr);
+    // Verificar tamanho (localStorage ~5MB; alertar acima de 3.5MB)
+    const kb = (json.length * 2) / 1024;
+    const warn = document.getElementById('storage-warn');
+    if(kb > 3500){ if(warn) warn.classList.add('on'); }
+    else { if(warn) warn.classList.remove('on'); }
+    localStorage.setItem('rcb_hist', json);
+    return true;
+  }catch(e){
+    // QuotaExceededError
+    toast('⚠ Armazenamento cheio! Exporte e exclua contagens antigas.', true);
+    const warn = document.getElementById('storage-warn');
+    if(warn) warn.classList.add('on');
+    return false;
+  }
+}
+
+function histAdd(entry){
+  const arr = histLoad();
+  arr.unshift(entry);
+  if(arr.length > 50) arr.pop();
+  return histSave(arr);
+}
+function histDel(id){
+  const arr = histLoad().filter(h=>h.id!==id);
+  histSave(arr);
+}
+function histUpdate(id, updatedEntry){
+  const arr = histLoad();
+  const idx = arr.findIndex(h=>h.id===id);
+  if(idx>=0){ arr[idx]=updatedEntry; histSave(arr); }
+}
+
+/* ── Session persistence ── */
+function sessStateLoad(){
+  try{
+    const s=JSON.parse(localStorage.getItem('rcb_sess')||'null');
+    if(!s||!s.session)return;
+    session=s.session; items=s.items||[]; grouped=s.grouped||{};
+  }catch(e){}
+}
+function sessStateSave(){
+  try{
+    if(session) localStorage.setItem('rcb_sess',JSON.stringify({session,items,grouped}));
+    else localStorage.removeItem('rcb_sess');
+  }catch(e){
+    toast('⚠ Erro ao salvar sessão — armazenamento cheio!', true);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   CLOCK
+═══════════════════════════════════════════════ */
+function tClk(){ document.getElementById('dash-clk').textContent = new Date().toLocaleTimeString('pt-BR'); }
+tClk(); setInterval(tClk, 1000);
+
+/* ═══════════════════════════════════════════════
+   NAVEGAÇÃO
+═══════════════════════════════════════════════ */
+function navTo(id){
+  const cur = pageStack[pageStack.length-1];
+  if(cur===id) return;
+  document.getElementById(cur).classList.add('back');
+  const el = document.getElementById(id);
+  el.classList.remove('out');
+  el.classList.remove('back');
+  pageStack.push(id);
+  if(id==='pg-lista')    renderList();
+  if(id==='pg-hist')     renderHist();
+  if(id==='pg-dash')     updateDash();
+  if(id==='pg-forn')     { fornTabShow('cadastrados'); _updateVisionStatus(); }
+  if(id==='pg-scan' && session){
+    document.getElementById('card-sess').style.display   = 'none';
+    document.getElementById('card-cam').style.display    = 'block';
+    document.getElementById('card-manual').style.display = 'block';
+    document.getElementById('card-acoes').style.display  = 'block';
+    _applyFornBadges(session.forn);
+    document.getElementById('sess-tag').textContent      = session.forn.toUpperCase();
+    document.getElementById('m-forn').value              = session.forn;
+  }
+}
+
+function navBack(){
+  if(pageStack.length<=1) return;
+  const cur  = pageStack.pop();
+  const prev = pageStack[pageStack.length-1];
+  if(cur==='pg-scan' && camOn) camStop();
+  document.getElementById(cur).classList.add('out');
+  document.getElementById(prev).classList.remove('back');
+  updateDash();
+}
+
+/* ═══════════════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════════════ */
+function sessPillClick(){
+  if(session){
+    navTo('pg-lista');
+  } else {
+    navTo('pg-scan');
+  }
+}
+
+function updateDash(){
+  const refs = Object.keys(grouped).length;
+  const cxas = Object.values(grouped).reduce((s,r)=>s+r.qty,0);
+  const hist = histLoad().length;
+
+  document.getElementById('d-refs').textContent = refs;
+  document.getElementById('d-cxas').textContent = cxas;
+  document.getElementById('d-hist').textContent = hist;
+  document.getElementById('db-hist-sub').textContent = hist + ' contagen' + (hist!==1?'s':'');
+  document.getElementById('db-lista-sub').textContent = session
+    ? (refs + ' ref' + (refs!==1?'s':'') + ' · ' + cxas + ' pç')
+    : 'Sem sessão ativa';
+
+  const dot  = document.getElementById('sdot');
+  const name = document.getElementById('sname');
+  const det  = document.getElementById('sdet');
+  const arrow = document.getElementById('sess-arrow');
+  const scanBtn = document.getElementById('dbtn-scan');
+  const scanLbl = document.getElementById('dbtn-scan-lbl');
+  const scanSub = document.getElementById('dbtn-scan-sub');
+  const scanIco = document.getElementById('dbtn-scan-ico');
+  if(session){
+    dot.classList.add('live');
+    name.textContent = session.forn + (session.nf?' · '+session.nf:'');
+    det.textContent  = 'Iniciada '+session.start+' · '+items.length+' scan'+(items.length!==1?'s':'')+'  →  Ver lista';
+    if(arrow){ arrow.style.color='var(--gr)'; arrow.textContent='›'; }
+    if(scanLbl) scanLbl.textContent = 'Continuar';
+    if(scanSub) scanSub.textContent = 'Sessão em andamento';
+    if(scanIco) scanIco.textContent = '⏸';
+  } else {
+    dot.classList.remove('live');
+    name.textContent = 'Nenhuma sessão ativa';
+    det.textContent  = 'Toque em Iniciar Contagem para começar';
+    if(arrow){ arrow.style.color='var(--cy)'; arrow.textContent='›'; }
+    if(scanLbl) scanLbl.textContent = 'Iniciar Contagem';
+    if(scanSub) scanSub.textContent = 'Escanear etiquetas';
+    if(scanIco) scanIco.textContent = '▶';
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   SESSION
+═══════════════════════════════════════════════ */
+function isLP(n){ return (n||'').trim().toUpperCase()==='LINKPLAS'; }
+function isSPI(n){ return (n||'').trim().toUpperCase()==='SPI'; }
+
+/* ── Fornecedores cadastrados (custom) ── */
+function fornLoad(){ try{ return JSON.parse(localStorage.getItem('rcb_forn')||'[]'); }catch(e){ return []; } }
+function fornSaveAll(arr){ try{ localStorage.setItem('rcb_forn',JSON.stringify(arr)); }catch(e){ toast('Erro ao salvar fornecedor',true); } }
+
+function fornFindByName(name){
+  const n=(name||'').trim().toUpperCase();
+  return fornLoad().find(f=>f.nome.toUpperCase()===n)||null;
+}
+
+/* ── Tab switching ── */
+function fornTabShow(tab){
+  ['cadastrados','cadastrar','api','ia'].forEach(t=>{
+    document.getElementById('ftab-body-'+t).style.display = t===tab?'block':'none';
+    document.getElementById('ftab-'+t).classList.toggle('active', t===tab);
+  });
+  if(tab==='cadastrados') renderFornList();
+  if(tab==='cadastrar'){   fornFormReset(); _aiChatHistory=[]; aiInlineInit(); }
+  if(tab==='api')         _updateVisionStatus();
+  if(tab==='ia')          aiTabInit();
+}
+
+/* ── Tipo de parser ── */
+function fornTipoChange(){
+  const tipo = document.getElementById('fn-tipo').value;
+  ['regex','pipe','kv','posicional'].forEach(t=>{
+    document.getElementById('fs-'+t).style.display = tipo===t?'block':'none';
+  });
+  document.getElementById('forn-test-box').className='';
+  document.getElementById('forn-test-box').style.display='none';
+}
+
+function fornFormReset(){
+  document.getElementById('fn-nome').value='';
+  document.getElementById('fn-tipo').value='generico';
+  document.getElementById('fn-ref-regex').value='';
+  document.getElementById('fn-qty-regex').value='';
+  document.getElementById('fn-qty-div').value='1';
+  document.getElementById('fn-ref-strip').value='';
+  document.getElementById('fn-pipe-ref').value='0';
+  document.getElementById('fn-pipe-qty').value='2';
+  document.getElementById('fn-pipe-sep').value='|';
+  document.getElementById('fn-pipe-desc').value='1';
+  document.getElementById('fn-kv-ref').value='REF';
+  document.getElementById('fn-kv-qty').value='QTD';
+  document.getElementById('fn-kv-sep').value=';';
+  document.getElementById('fn-kv-eq').value='=';
+  document.getElementById('fn-pos-ref-s').value='0';
+  document.getElementById('fn-pos-ref-e').value='12';
+  document.getElementById('fn-pos-qty-s').value='12';
+  document.getElementById('fn-pos-qty-e').value='17';
+  document.getElementById('fn-pos-div').value='1';
+  document.getElementById('fn-test-raw').value='';
+  document.getElementById('forn-test-box').className='';
+  document.getElementById('forn-test-box').style.display='none';
+  fornTipoChange();
+}
+
+/* ── Salvar fornecedor ── */
+function fornSave(){
+  const nome = document.getElementById('fn-nome').value.trim().toUpperCase();
+  if(!nome){ toast('Informe o nome do fornecedor',true); return; }
+  if(['LINKPLAS','SPI'].includes(nome)){ toast('Nome reservado — escolha outro',true); return; }
+
+  const tipo = document.getElementById('fn-tipo').value;
+  const cfg  = { nome, tipo };
+
+  if(tipo==='regex'){
+    const refR = document.getElementById('fn-ref-regex').value.trim();
+    if(!refR){ toast('Informe o Regex da Referência',true); return; }
+    try{ new RegExp(refR); }catch(e){ toast('Regex da Referência inválido: '+e.message,true); return; }
+    const qtyR = document.getElementById('fn-qty-regex').value.trim();
+    if(qtyR){ try{ new RegExp(qtyR); }catch(e){ toast('Regex da Quantidade inválido: '+e.message,true); return; } }
+    cfg.refRegex  = refR;
+    cfg.qtyRegex  = qtyR;
+    cfg.qtyDiv    = Math.max(1, parseInt(document.getElementById('fn-qty-div').value)||1);
+    cfg.refStrip  = document.getElementById('fn-ref-strip').value;
+  } else if(tipo==='pipe'){
+    cfg.pipeRef  = parseInt(document.getElementById('fn-pipe-ref').value)||0;
+    cfg.pipeQty  = parseInt(document.getElementById('fn-pipe-qty').value)||2;
+    cfg.pipeSep  = document.getElementById('fn-pipe-sep').value||'|';
+    cfg.pipeDesc = parseInt(document.getElementById('fn-pipe-desc').value);
+  } else if(tipo==='kv'){
+    cfg.kvRef = document.getElementById('fn-kv-ref').value.trim()||'REF';
+    cfg.kvQty = document.getElementById('fn-kv-qty').value.trim()||'QTD';
+    cfg.kvSep = document.getElementById('fn-kv-sep').value||';';
+    cfg.kvEq  = document.getElementById('fn-kv-eq').value||'=';
+  } else if(tipo==='posicional'){
+    cfg.posRefS = parseInt(document.getElementById('fn-pos-ref-s').value)||0;
+    cfg.posRefE = parseInt(document.getElementById('fn-pos-ref-e').value)||12;
+    cfg.posQtyS = parseInt(document.getElementById('fn-pos-qty-s').value)||12;
+    cfg.posQtyE = parseInt(document.getElementById('fn-pos-qty-e').value)||17;
+    cfg.posDiv  = Math.max(1, parseInt(document.getElementById('fn-pos-div').value)||1);
+  }
+  // json e generico não têm parâmetros extras
+
+  const arr = fornLoad().filter(f=>f.nome!==nome);
+  arr.unshift(cfg);
+  fornSaveAll(arr);
+  toast(nome+' salvo');
+  fornTabShow('cadastrados');
+}
+
+/* ── Aplicar parser de um fornecedor customizado ── */
+function parseCustomForn(raw, cfg){
+  const tipo = cfg.tipo;
+  let ref=null, qty=1, desc='';
+
+  if(tipo==='regex'){
+    try{
+      const rRef = new RegExp(cfg.refRegex,'i');
+      const mRef = raw.match(rRef);
+      if(!mRef) return null;
+      ref = mRef[1]!==undefined ? mRef[1] : mRef[0];
+      if(cfg.refStrip && ref.startsWith(cfg.refStrip)) ref=ref.slice(cfg.refStrip.length);
+      ref = ref.toUpperCase();
+
+      if(cfg.qtyRegex){
+        const rQty = new RegExp(cfg.qtyRegex,'i');
+        const mQty = raw.match(rQty);
+        if(mQty){
+          const rawN = mQty[1]!==undefined ? mQty[1] : mQty[0];
+          qty = Math.round(parseInt(rawN,10) / (cfg.qtyDiv||1));
+        }
+      }
+    }catch(e){ return null; }
+
+  } else if(tipo==='pipe'){
+    const sep = cfg.pipeSep||'|';
+    const parts = raw.split(sep);
+    ref = (parts[cfg.pipeRef]||'').trim();
+    qty = parseInt((parts[cfg.pipeQty]||'1').trim())||1;
+    if(cfg.pipeDesc>=0) desc = (parts[cfg.pipeDesc]||'').trim();
+
+  } else if(tipo==='kv'){
+    const sep = cfg.kvSep||';';
+    const eq  = cfg.kvEq||'=';
+    const map = {};
+    raw.split(sep).forEach(s=>{
+      const idx=s.indexOf(eq);
+      if(idx<0)return;
+      const k=s.slice(0,idx).trim().toUpperCase();
+      const v=s.slice(idx+1).trim();
+      map[k]=v;
+    });
+    ref = map[(cfg.kvRef||'REF').toUpperCase()]||null;
+    qty = parseInt(map[(cfg.kvQty||'QTD').toUpperCase()])||1;
+
+  } else if(tipo==='posicional'){
+    ref = raw.slice(cfg.posRefS||0, cfg.posRefE||12).trim();
+    const rawQty = raw.slice(cfg.posQtyS||12, cfg.posQtyE||17).trim();
+    qty = Math.round((parseInt(rawQty,10)||1) / (cfg.posDiv||1));
+
+  } else {
+    // generico / json / kv-generico — delega para parseGeneric
+    return null; // vai cair no parseGeneric normalmente
+  }
+
+  if(!ref) return null;
+  if(qty<=0) qty=1;
+  return { ref, qty, desc };
+}
+
+/* ── Testar parser na UI ── */
+function fornTestParser(){
+  const raw  = document.getElementById('fn-test-raw').value.trim();
+  const box  = document.getElementById('forn-test-box');
+  if(!raw){ toast('Cole um código de exemplo primeiro',true); return; }
+
+  const tipo = document.getElementById('fn-tipo').value;
+  const nome = document.getElementById('fn-nome').value.trim().toUpperCase()||'TESTE';
+
+  // Montar cfg temporário
+  const cfg = { nome, tipo };
+  if(tipo==='regex'){
+    cfg.refRegex = document.getElementById('fn-ref-regex').value.trim();
+    cfg.qtyRegex = document.getElementById('fn-qty-regex').value.trim();
+    cfg.qtyDiv   = Math.max(1, parseInt(document.getElementById('fn-qty-div').value)||1);
+    cfg.refStrip = document.getElementById('fn-ref-strip').value;
+  } else if(tipo==='pipe'){
+    cfg.pipeRef  = parseInt(document.getElementById('fn-pipe-ref').value)||0;
+    cfg.pipeQty  = parseInt(document.getElementById('fn-pipe-qty').value)||2;
+    cfg.pipeSep  = document.getElementById('fn-pipe-sep').value||'|';
+    cfg.pipeDesc = parseInt(document.getElementById('fn-pipe-desc').value);
+  } else if(tipo==='kv'){
+    cfg.kvRef = document.getElementById('fn-kv-ref').value.trim()||'REF';
+    cfg.kvQty = document.getElementById('fn-kv-qty').value.trim()||'QTD';
+    cfg.kvSep = document.getElementById('fn-kv-sep').value||';';
+    cfg.kvEq  = document.getElementById('fn-kv-eq').value||'=';
+  } else if(tipo==='posicional'){
+    cfg.posRefS = parseInt(document.getElementById('fn-pos-ref-s').value)||0;
+    cfg.posRefE = parseInt(document.getElementById('fn-pos-ref-e').value)||12;
+    cfg.posQtyS = parseInt(document.getElementById('fn-pos-qty-s').value)||12;
+    cfg.posQtyE = parseInt(document.getElementById('fn-pos-qty-e').value)||17;
+    cfg.posDiv  = Math.max(1, parseInt(document.getElementById('fn-pos-div').value)||1);
+  }
+
+  let result = null;
+  if(tipo==='generico'||tipo==='json'){
+    result = parseGeneric(raw);
+  } else {
+    result = parseCustomForn(raw, cfg);
+    if(!result && tipo==='generico') result = parseGeneric(raw);
+  }
+
+  if(result && result.ref){
+    box.className='ok';
+    box.innerHTML=`<b>✓ Extração bem-sucedida</b><br>`+
+      `Referência: <span class="ok-val">${h(result.ref)}</span><br>`+
+      `Quantidade: <span class="ok-val">${result.qty} pç</span>`+
+      (result.desc?`<br>Descrição: <span class="ok-val">${h(result.desc)}</span>`:'');
+  } else {
+    box.className='err';
+    box.innerHTML=`<span class="err-val">✗ Nenhuma extração possível com este padrão.</span><br>`+
+      `Verifique os campos de configuração e tente novamente.`;
+  }
+  box.style.display='block';
+}
+
+/* ── Renderizar lista de fornecedores ── */
+function renderFornList(){
+  const arr  = fornLoad();
+  const list = document.getElementById('forn-list');
+  const empty= document.getElementById('forn-list-empty');
+  if(!arr.length){ list.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  list.innerHTML='';
+  const tipoLabel={
+    generico:'Genérico', regex:'Regex', pipe:'Pipe',
+    kv:'Chave-Valor', json:'JSON', posicional:'Posicional'
+  };
+  arr.forEach(f=>{
+    const div=document.createElement('div');
+    div.className='forn-card';
+    div.innerHTML=`
+      <div class="forn-card-head">
+        <div class="forn-card-name">${h_(f.nome)}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="forn-card-type ${f.tipo}">${tipoLabel[f.tipo]||f.tipo}</span>
+          <button class="forn-card-del" aria-label="Excluir">✕</button>
+        </div>
+      </div>
+      <div class="forn-card-meta">${_fornSummary(f)}</div>
+    `;
+    div.querySelector('.forn-card-del').onclick=(e)=>{
+      e.stopPropagation();
+      mc('Excluir "'+f.nome+'"','Este fornecedor e sua configuração serão removidos.',()=>{
+        fornSaveAll(fornLoad().filter(x=>x.nome!==f.nome));
+        renderFornList();
+        toast(f.nome+' removido');
+      });
+    };
+    div.onclick=()=>fornEditOpen(f.nome);
+    list.appendChild(div);
+  });
+}
+
+function _fornSummary(f){
+  if(f.tipo==='regex') return `Ref: <code style="font-size:.5rem">${h_(f.refRegex)}</code>`+(f.qtyRegex?` · Qtd: <code style="font-size:.5rem">${h_(f.qtyRegex)}</code>`:'');
+  if(f.tipo==='pipe')  return `Separador <b>${h_(f.pipeSep)}</b> · Ref[${f.pipeRef}] · Qtd[${f.pipeQty}]`;
+  if(f.tipo==='kv')    return `${h_(f.kvRef)}${h_(f.kvEq)}valor${h_(f.kvSep)}${h_(f.kvQty)}${h_(f.kvEq)}número`;
+  if(f.tipo==='posicional') return `Ref pos ${f.posRefS}:${f.posRefE} · Qtd pos ${f.posQtyS}:${f.posQtyE}`;
+  return 'Formatos automáticos: JSON, Pipe, Chave-Valor, texto livre';
+}
+
+/* ── Editar nome de fornecedor ── */
+let _fornEditNome = null;
+function fornEditOpen(nome){
+  _fornEditNome = nome;
+  const f = fornLoad().find(x=>x.nome===nome);
+  if(!f) return;
+  const tipoLabel={generico:'Genérico',regex:'Regex',pipe:'Pipe',kv:'Chave-Valor',json:'JSON',posicional:'Posicional'};
+  document.getElementById('mfe-title').textContent = nome;
+  document.getElementById('mfe-nome').value = nome;
+  const sel = document.getElementById('mfe-tipo');
+  sel.innerHTML = `<option>${tipoLabel[f.tipo]||f.tipo}</option>`;
+  document.getElementById('mfe-info').innerHTML = _fornSummary(f);
+  document.getElementById('mdl-forn-edit').classList.add('on');
+}
+function fornEditClose(){
+  document.getElementById('mdl-forn-edit').classList.remove('on');
+  _fornEditNome=null;
+}
+function fornEditSave(){
+  const newNome = document.getElementById('mfe-nome').value.trim().toUpperCase();
+  if(!newNome){ toast('Nome inválido',true); return; }
+  if(['LINKPLAS','SPI'].includes(newNome)){ toast('Nome reservado',true); return; }
+  const arr = fornLoad();
+  const idx = arr.findIndex(f=>f.nome===_fornEditNome);
+  if(idx<0){ toast('Fornecedor não encontrado',true); return; }
+  arr[idx].nome = newNome;
+  fornSaveAll(arr);
+  fornEditClose();
+  renderFornList();
+  toast('Nome atualizado');
+}
+function fornEditDelete(){
+  if(!_fornEditNome) return;
+  mc('Excluir "'+_fornEditNome+'"','Este fornecedor será removido permanentemente.',()=>{
+    fornSaveAll(fornLoad().filter(f=>f.nome!==_fornEditNome));
+    fornEditClose();
+    renderFornList();
+    toast(_fornEditNome+' removido');
+  });
+}
+
+function _applyFornBadges(forn){
+  const customCfg = fornFindByName(forn);
+  document.getElementById('lp-badge').style.display  = isLP(forn)?'block':'none';
+  document.getElementById('spi-badge').style.display = isSPI(forn)?'block':'none';
+  document.getElementById('mode-toggle').style.display = isSPI(forn)?'flex':'none';
+  if(isSPI(forn)) setMode('ocr'); else setMode('qr');
+  // Mostrar badge customizado se for fornecedor cadastrado
+  const custBadge = document.getElementById('cust-badge');
+  if(custBadge){
+    if(customCfg && !isLP(forn) && !isSPI(forn)){
+      custBadge.textContent = forn.slice(0,8);
+      custBadge.style.display='block';
+    } else {
+      custBadge.style.display='none';
+    }
+  }
+}
+
+function sessStart(){
+  const forn = document.getElementById('inp-forn').value.trim();
+  if(!forn){ toast('Informe o fornecedor',true); return; }
+  const nf = document.getElementById('inp-nf').value.trim();
+  session = { forn, nf, start: new Date().toLocaleString('pt-BR') };
+  _applyFornBadges(forn);
+  document.getElementById('sess-tag').textContent    = forn.toUpperCase();
+  document.getElementById('card-sess').style.display   = 'none';
+  document.getElementById('card-cam').style.display    = 'block';
+  document.getElementById('card-manual').style.display = 'block';
+  document.getElementById('card-acoes').style.display  = 'block';
+  document.getElementById('m-forn').value = forn;
+  sessStateSave();
+  updateDash();
+  toast('Sessão iniciada');
+}
+
+function sessCancel(){
+  camStop();
+  session = null; items = []; grouped = {}; pending = null;
+  sessStateSave();
+  resetScanUI();
+  updateDash();
+  navBack();
+}
+
+function sessSave(){
+  if(!session){ toast('Nenhuma sessão ativa',true); return; }
+  if(!Object.keys(grouped).length){ toast('Nenhum item para salvar',true); return; }
+
+  const entry = {
+    id      : Date.now(),
+    forn    : session.forn,
+    nf      : session.nf,
+    start   : session.start,
+    end     : new Date().toLocaleString('pt-BR'),
+    scans   : items.length,
+    grouped : {...grouped},
+    items   : [...items]
+  };
+  const ok = histAdd(entry);
+  if(!ok){ toast('Falha ao salvar — armazenamento cheio!', true); return; }
+
+  camStop();
+  session = null; items = []; grouped = {}; pending = null;
+  sessStateSave();
+  resetScanUI();
+  updateDash();
+  toast('Contagem salva no histórico');
+  navBack();
+}
+
+function resetScanUI(){
+  document.getElementById('card-sess').style.display   = 'block';
+  document.getElementById('card-cam').style.display    = 'none';
+  document.getElementById('card-manual').style.display = 'none';
+  document.getElementById('card-acoes').style.display  = 'none';
+  document.getElementById('qr-box').classList.remove('on');
+  document.getElementById('lp-badge').style.display    = 'none';
+  document.getElementById('inp-forn').value = '';
+  document.getElementById('inp-nf').value   = '';
+}
+
+/* ── Exportar sessão ativa (sem finalizar) ── */
+function exportSessAtiva(){
+  if(!session||!Object.keys(grouped).length){ toast('Nenhum dado para exportar',true); return; }
+  const rows=[['Referencia','Descricao','Leituras','Pecas','Fornecedor','NF','Inicio']];
+  Object.values(grouped).forEach(r=>{
+    rows.push([r.ref,r.desc||'',r.scans,r.qty,r.forn,session.nf||'',session.start]);
+  });
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`SESSAO_${(session.forn||'').replace(/\s/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast('CSV da sessão exportado');
+}
+
+/* ═══════════════════════════════════════════════
+   SORT — lista atual
+═══════════════════════════════════════════════ */
+function setSort(mode){
+  _sortMode = mode;
+  ['az','qty','rec'].forEach(m=>{
+    document.getElementById('sort-'+m).classList.toggle('active', m===mode);
+  });
+  renderList();
+}
+
+/* ═══════════════════════════════════════════════
+   CÂMERA — engine com 3 decoders em cascata
+   1º BarcodeDetector (API nativa Chrome/Android)
+   2º ZXing           (robusto, handles baixa qualidade)
+   3º jsQR            (fallback leve)
+═══════════════════════════════════════════════ */
+let _barcodeDetector = null;
+let _zxingReader     = null;
+let _engineLabel     = '—';
+
+async function initEngines(){
+  try{
+    if('BarcodeDetector' in window){
+      // Usa todos os formatos suportados (inclui code_128, ean_13, etc.)
+      const formats = await BarcodeDetector.getSupportedFormats();
+      const qrFormats = formats.filter(f=>['qr_code','code_128','ean_13','ean_8','code_39','data_matrix'].includes(f));
+      if(qrFormats.length){
+        _barcodeDetector = new BarcodeDetector({formats: qrFormats});
+        _engineLabel = 'BarcodeDetector';
+      }
+    }
+  }catch(e){ _barcodeDetector=null; }
+
+  try{
+    if(window.ZXing){
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      _zxingReader = new ZXing.BrowserQRCodeReader(hints);
+      _engineLabel = _engineLabel==='—' ? 'ZXing' : _engineLabel+' + ZXing';
+    }
+  }catch(e){ _zxingReader=null; }
+
+  if(typeof jsQR==='function'){
+    _engineLabel = _engineLabel==='—' ? 'jsQR' : _engineLabel+' + jsQR';
+  }
+
+  const badge = document.getElementById('engine-badge');
+  if(badge) badge.textContent = 'Decoders: ' + _engineLabel;
+}
+
+async function camStart(){
+  if(camOn) return;
+  if(!session){ toast('Inicie uma sessão primeiro',true); return; }
+  setSt('Iniciando câmera...','wa');
+
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    setSt('Use o Chrome ou Edge para acessar a câmera.','err'); return;
+  }
+
+  const cfgs = [
+    {video:{facingMode:{exact:'environment'},width:{ideal:1920},height:{ideal:1080},focusMode:'continuous'}},
+    {video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},
+    {video:{facingMode:{ideal:'environment'}}},
+    {video:{facingMode:'environment'}},
+    {video:true}
+  ];
+
+  let stream=null, lastErr=null;
+  for(const c of cfgs){
+    try{ stream=await navigator.mediaDevices.getUserMedia(c); break; }
+    catch(e){ lastErr=e; if(e.name==='NotAllowedError'||e.name==='PermissionDeniedError') break; }
+  }
+
+  if(!stream){
+    let msg='Câmera não disponível.';
+    if(lastErr){
+      if(lastErr.name==='NotAllowedError'||lastErr.name==='PermissionDeniedError')
+        msg='Permissão negada. Toque no cadeado → permita câmera.';
+      else if(lastErr.name==='NotFoundError') msg='Nenhuma câmera encontrada.';
+      else if(lastErr.name==='NotReadableError') msg='Câmera em uso por outro app.';
+      else msg='Erro: '+(lastErr.name||lastErr.message);
+    }
+    setSt(msg,'err'); return;
+  }
+
+  camStream = stream;
+  const vid = document.getElementById('vid');
+  vid.srcObject = stream;
+  vid.setAttribute('playsinline','');
+  vid.setAttribute('webkit-playsinline','');
+  vid.muted = true;
+
+  try{
+    const tk = stream.getVideoTracks()[0];
+    const cp = tk.getCapabilities ? tk.getCapabilities() : {};
+    const av = {};
+    if(cp.focusMode && cp.focusMode.includes('continuous')) av.focusMode='continuous';
+    if(Object.keys(av).length) await tk.applyConstraints({advanced:[av]});
+    if(cp.torch) document.getElementById('btn-torch').style.display='block';
+    const settings = tk.getSettings ? tk.getSettings() : {};
+    const res = settings.width ? `${settings.width}×${settings.height}` : '';
+    setSt('Câmera pronta'+(res?' ('+res+')':''),'ok');
+  }catch(e){ setSt('Câmera pronta','ok'); }
+
+  vid.onloadedmetadata = async()=>{
+    try{ await vid.play(); }catch(e){}
+    camOn=true; readCnt=0;
+    document.getElementById('cam-ph').classList.add('off');
+    document.getElementById('btn-open').style.display ='none';
+    document.getElementById('btn-close').style.display='block';
+    document.getElementById('cam-wrap').classList.add('scanning');
+    setSt('Aponte o QR Code para a área de leitura','ok');
+    raf=requestAnimationFrame(scanLoop);
+    if(_scanMode==='ocr') _ocrLoopStart();
+  };
+}
+
+function camStop(){
+  camOn=false; torchOn=false; _scanBusy=false;
+  _ocrLoopStop();
+  if(raf){cancelAnimationFrame(raf);raf=null;}
+  const vid=document.getElementById('vid');
+  vid.srcObject=null;
+  if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;}
+  document.getElementById('cam-ph').classList.remove('off');
+  document.getElementById('cam-wrap').classList.remove('scanning');
+  document.getElementById('btn-open').style.display ='block';
+  document.getElementById('btn-close').style.display='none';
+  document.getElementById('btn-torch').style.display='none';
+  document.getElementById('cam-cnt').textContent='';
+  document.getElementById('ocr-countdown').classList.remove('on');
+  setSt('','');
+}
+
+async function torchTog(){
+  if(!camStream)return;
+  try{
+    const tk=camStream.getVideoTracks()[0];
+    torchOn=!torchOn;
+    await tk.applyConstraints({advanced:[{torch:torchOn}]});
+    const b=document.getElementById('btn-torch');
+    b.textContent=torchOn?'Luz OFF':'Luz';
+    b.style.color=torchOn?'var(--wa)':'';
+  }catch(e){toast('Lanterna não disponível',true);}
+}
+
+function setSt(msg,cls){
+  const el=document.getElementById('cam-st');
+  el.textContent=msg; el.className=cls;
+}
+
+/* ── SCAN LOOP ── */
+let _scanBusy  = false;
+
+function scanLoop(){
+  if(!camOn)return;
+  raf=requestAnimationFrame(scanLoop);
+  if(_scanMode==='ocr') return;
+  if(pending||_scanBusy)return;
+  const vid=document.getElementById('vid');
+  if(vid.readyState<vid.HAVE_ENOUGH_DATA||vid.videoWidth===0)return;
+  if(Date.now()-lastQR<600)return;
+
+  _scanBusy=true;
+  decodeFrame(vid).then(result=>{
+    if(result && Date.now()-lastQR>600){
+      readCnt++;
+      document.getElementById('cam-cnt').textContent=readCnt+' lidos';
+      lastQR=Date.now();
+      handleQR(result);
+    }
+  }).catch(()=>{}).finally(()=>{ _scanBusy=false; });
+}
+
+async function decodeFrame(vid){
+  const cv=document.getElementById('cv');
+  const W=vid.videoWidth, H=vid.videoHeight;
+  cv.width=W; cv.height=H;
+  const ctx=cv.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(vid,0,0);
+
+  if(_barcodeDetector){
+    try{
+      const results=await _barcodeDetector.detect(cv);
+      if(results.length>0) return results[0].rawValue;
+    }catch(e){}
+  }
+
+  if(_zxingReader){
+    try{
+      const crops=[
+        {x:0,y:0,w:W,h:H},
+        {x:Math.floor(W*.15),y:Math.floor(H*.15),w:Math.floor(W*.7),h:Math.floor(H*.7)},
+      ];
+      for(const c of crops){
+        const imgData=ctx.getImageData(c.x,c.y,c.w,c.h);
+        const lum=new ZXing.RGBLuminanceSource(imgData.data,c.w,c.h);
+        const bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+        try{
+          const res=_zxingReader.decodeBitmap(bmp);
+          if(res&&res.getText()) return res.getText();
+        }catch(e){}
+      }
+    }catch(e){}
+  }
+
+  if(typeof jsQR==='function'){
+    const crops=[
+      ctx.getImageData(0,0,W,H),
+      (()=>{const cw=Math.floor(W*.7),ch=Math.floor(H*.7);return ctx.getImageData(Math.floor((W-cw)/2),Math.floor((H-ch)/2),cw,ch);})(),
+    ];
+    for(const img of crops){
+      let qr=jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+      if(!qr) qr=jsQR(img.data,img.width,img.height,{inversionAttempts:'onlyInvert'});
+      if(qr&&qr.data) return qr.data;
+    }
+  }
+
+  return null;
+}
+
+/* ═══════════════════════════════════════════════
+   GOOGLE CLOUD VISION — OCR para etiquetas SPI
+   Prioridade: EMBEDDED_VISION_KEY → localStorage → sem OCR
+═══════════════════════════════════════════════ */
+let _ocrBusy  = false;
+let _scanMode = 'qr';
+let _ocrTimer = null;
+let _lastOcrTs = 0;
+
+/* ── Resolução da chave com prioridade ── */
+function visionKeyResolve(){
+  // 1. Chave embutida no HTML (maior prioridade)
+  if(typeof EMBEDDED_VISION_KEY === 'string' && EMBEDDED_VISION_KEY.trim().length > 10){
+    return EMBEDDED_VISION_KEY.trim();
+  }
+  // 2. Chave salva no localStorage
+  return localStorage.getItem('rcb_vision_key') || '';
+}
+
+function visionKeyLoad(){ return localStorage.getItem('rcb_vision_key')||''; }
+
+function visionKeySave(){
+  const k = document.getElementById('vision-key-input').value.trim();
+  if(!k){ toast('Cole a chave antes de salvar',true); return; }
+  localStorage.setItem('rcb_vision_key', k);
+  _updateVisionStatus();
+  toast('Chave salva');
+}
+
+function visionKeyClear(){
+  localStorage.removeItem('rcb_vision_key');
+  document.getElementById('vision-key-input').value = '';
+  _updateVisionStatus();
+  toast('Chave local removida');
+}
+
+function _updateVisionStatus(){
+  const embKey = (typeof EMBEDDED_VISION_KEY === 'string' && EMBEDDED_VISION_KEY.trim().length > 10)
+    ? EMBEDDED_VISION_KEY.trim() : '';
+  const lsKey  = visionKeyLoad();
+  const el     = document.getElementById('vision-status');
+  const embInfo = document.getElementById('emb-key-info');
+  const inp    = document.getElementById('vision-key-input');
+  if(!el) return;
+
+  if(embKey){
+    el.textContent = 'EMBUTIDA';
+    el.className   = 'key-src emb';
+    if(embInfo) embInfo.style.display = 'block';
+  } else if(lsKey){
+    el.textContent = 'LOCAL';
+    el.className   = 'key-src ls';
+    if(embInfo) embInfo.style.display = 'none';
+    if(inp) inp.value = lsKey;
+  } else {
+    el.textContent = 'SEM CHAVE';
+    el.className   = 'key-src none';
+    if(embInfo) embInfo.style.display = 'none';
+  }
+}
+
+setTimeout(_updateVisionStatus, 100);
+
+async function visionKeyTest(){
+  const k = visionKeyResolve();
+  const res = document.getElementById('vision-test-result');
+  res.style.display = 'block';
+  if(!k){ res.textContent = '⚠ Nenhuma chave configurada.'; res.style.color='var(--re)'; return; }
+  res.textContent = 'Testando conexão…'; res.style.color='var(--mu2)';
+  try{
+    const r = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${k}`,
+      { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ requests:[{
+          image:{ content:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==' },
+          features:[{type:'TEXT_DETECTION',maxResults:1}]
+        }]})
+      });
+    const d = await r.json();
+    if(d.error){ res.textContent = '✗ Erro: '+d.error.message; res.style.color='var(--re)'; }
+    else { res.textContent = '✓ Chave válida! Vision API respondeu corretamente.'; res.style.color='var(--gr)'; }
+  }catch(e){ res.textContent = '✗ Sem conexão: '+e.message; res.style.color='var(--re)'; }
+}
+
+/* ── OCR Countdown visual ── */
+let _ocrCountdownAnim = null;
+function _ocrCountdownStart(ms){
+  const bar = document.getElementById('ocr-countdown');
+  const fill = document.getElementById('ocr-countdown-fill');
+  if(!bar||!fill) return;
+  bar.classList.add('on');
+  fill.style.transition='none';
+  fill.style.width='100%';
+  // force reflow
+  fill.offsetHeight;
+  fill.style.transition=`width ${ms}ms linear`;
+  fill.style.width='0%';
+}
+function _ocrCountdownStop(){
+  const bar=document.getElementById('ocr-countdown');
+  const fill=document.getElementById('ocr-countdown-fill');
+  if(bar) bar.classList.remove('on');
+  if(fill){ fill.style.transition='none'; fill.style.width='100%'; }
+}
+
+/* ── Captura frame → Google Vision → parseSPI ── */
+async function ocrCapture(silent=false){
+  if(!camOn){ if(!silent) toast('Abra a câmera primeiro',true); return; }
+  if(_ocrBusy) return;
+
+  const key = visionKeyResolve();
+  if(!key){
+    setSt('Configure a chave da Google Vision API em Fornecedores','err');
+    if(!silent) toast('Chave Vision API não configurada',true);
+    _ocrLoopStop();
+    return;
+  }
+
+  _ocrBusy = true;
+  if(!silent){
+    document.getElementById('ocr-overlay').classList.add('on');
+    document.getElementById('ocr-prog').textContent = 'Capturando…';
+  } else {
+    setSt('⟳ Lendo etiqueta…','wa');
+  }
+
+  try{
+    const vid = document.getElementById('vid');
+    if(vid.readyState < vid.HAVE_ENOUGH_DATA || vid.videoWidth === 0){
+      _ocrBusy = false; return;
+    }
+
+    const cv  = document.getElementById('cv');
+    const vW  = vid.videoWidth, vH = vid.videoHeight;
+    const cropX = vW*0.10, cropY = vH*0.10;
+    const cropW = vW*0.80, cropH = vH*0.80;
+    const TARGET = 800;
+    const scale  = Math.min(1, TARGET/cropW);
+    cv.width  = Math.round(cropW*scale);
+    cv.height = Math.round(cropH*scale);
+    const ctx = cv.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cv.width, cv.height);
+
+    const b64 = cv.toDataURL('image/jpeg', 0.85).split(',')[1];
+    if(!silent) document.getElementById('ocr-prog').textContent = 'Enviando para Vision API…';
+
+    const resp = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${key}`,
+      { method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ requests:[{
+          image: { content: b64 },
+          features:[{ type:'TEXT_DETECTION', maxResults:1 }],
+          imageContext:{ languageHints:['pt','en'] }
+        }]})
+      }
+    );
+
+    const data = await resp.json();
+
+    if(data.error){
+      const msg = data.error.message||'Erro Vision API';
+      setSt('Vision API: '+msg,'err');
+      if(!silent) toast(msg,true);
+      _ocrBusy=false;
+      document.getElementById('ocr-overlay').classList.remove('on');
+      return;
+    }
+
+    const fullText = data.responses?.[0]?.fullTextAnnotation?.text
+                  || data.responses?.[0]?.textAnnotations?.[0]?.description
+                  || '';
+
+    const rawBox = document.getElementById('ocr-raw-box');
+    rawBox.textContent = fullText.trim().slice(0, 300);
+    rawBox.classList.add('on');
+
+    const result = parseSPI(fullText);
+    if(result){
+      _lastOcrTs = Date.now();
+      readCnt++;
+      document.getElementById('cam-cnt').textContent = readCnt+' lidos';
+      handleQR(`SPI_OCR|${result.ref}|${result.qty}|SPI`);
+      _ocrLoopStop();
+      _ocrCountdownStop();
+      setSt('Etiqueta lida — confirme ou cancele','ok');
+      if(!silent) toast(`SPI: ${result.ref} · ${result.qty} pç`,'ok');
+      doFlash();
+    } else {
+      const flatNorm = fullText.replace(/\s/g,'').replace(/[Oo]/g,'0').replace(/[Il|\/\\]/g,'1');
+      const hasRef = /[1](\d{10,13})[A-Za-z]/i.test(flatNorm);
+      const hasQtd = /[Qq][Tt][Dd]/i.test(fullText);
+      const hasBigNum = /\b\d{1,4}\b/.test(fullText);
+      if(!silent){
+        let hint = 'Padrão SPI não detectado';
+        if(!hasRef && !hasQtd) hint += ' — etiqueta não visível ou fora do foco';
+        else if(!hasRef)       hint += ` — ref I+dígitos+letra não encontrada`;
+        else if(!hasQtd && !hasBigNum) hint += ' — quantidade não encontrada';
+        setSt(hint,'err');
+        toast('Centralize a etiqueta e tente novamente',true);
+      } else {
+        setSt(hasRef?'⟳ Qtd não encontrada…':hasQtd||hasBigNum?'⟳ Ref não encontrada…':'⟳ Aguardando etiqueta…','wa');
+      }
+    }
+  }catch(e){
+    if(!silent){ setSt('Erro: '+e.message,'err'); toast('Falha na leitura',true); }
+    else setSt('⟳ Erro de rede — tentando…','err');
+  }finally{
+    _ocrBusy=false;
+    document.getElementById('ocr-overlay').classList.remove('on');
+  }
+}
+
+/* ── Loop automático 1s com countdown visual ── */
+const OCR_INTERVAL = 1000;
+function _ocrLoopStart(){
+  _ocrLoopStop();
+  _ocrCountdownStart(OCR_INTERVAL);
+  _ocrTimer = setInterval(()=>{
+    if(pending||_ocrBusy) return;
+    _ocrCountdownStart(OCR_INTERVAL);
+    ocrCapture(true);
+  }, OCR_INTERVAL);
+}
+function _ocrLoopStop(){
+  if(_ocrTimer){ clearInterval(_ocrTimer); _ocrTimer=null; }
+  _ocrCountdownStop();
+}
+
+function setMode(mode){
+  _scanMode = mode;
+  document.getElementById('btn-mode-qr').classList.toggle('active', mode==='qr');
+  document.getElementById('btn-mode-ocr').classList.toggle('active', mode==='ocr');
+  document.getElementById('cam-mode-label').textContent = mode==='ocr' ? 'OCR Auto · SPI' : 'Leitura QR';
+  document.getElementById('ocr-capture-row').style.display = mode==='ocr' ? 'block' : 'none';
+  if(mode==='ocr'){
+    if(camOn) _ocrLoopStart();
+  } else {
+    _ocrLoopStop();
+    document.getElementById('ocr-overlay').classList.remove('on');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   PARSERS
+═══════════════════════════════════════════════ */
+function parseSPI(text){
+  function normalizeRef(s){
+    return s
+      .replace(/[Oo]/g, '0')
+      .replace(/[Il|\/\\]/g, '1');
+  }
+
+  const lines = text.split('\n');
+  const flat  = text.replace(/\s/g,'');
+  let ref = null;
+
+  const refPatterns = [
+    /(?<![A-Za-z0-9])([Il1|\/])(\d{11})([A-Za-z])(?![A-Za-z0-9])/,
+    /(?<![A-Za-z0-9])([Il1|\/])(\d{10,13})([A-Za-z])(?![A-Za-z0-9])/,
+  ];
+
+  for(const pat of refPatterns){
+    const m = flat.match(pat);
+    if(m){ ref = 'I' + m[2] + m[3].toUpperCase(); break; }
+  }
+
+  if(!ref){
+    const normFlat = normalizeRef(flat);
+    for(const pat of refPatterns){
+      const m = normFlat.match(pat);
+      if(m){ ref = 'I' + m[2] + m[3].toUpperCase(); break; }
+    }
+  }
+
+  if(!ref){
+    const joined = lines.map((l,i) => l + (lines[i+1]||'')).concat(lines);
+    for(const seg of joined){
+      const s = seg.replace(/\s/g,'');
+      const sn = normalizeRef(s);
+      for(const pat of refPatterns){
+        const m = sn.match(pat);
+        if(m){ ref = 'I' + m[2] + m[3].toUpperCase(); break; }
+      }
+      if(ref) break;
+    }
+  }
+
+  if(!ref){
+    const m = flat.match(/(?<![A-Za-z0-9])(\d{11,12})([A-Za-z])(?![A-Za-z0-9])/);
+    if(m){ ref = 'I' + m[1] + m[2].toUpperCase(); }
+  }
+
+  if(!ref) return null;
+
+  let qty = null;
+  const mQ1 = text.match(/[Qq][Tt][Dd][Ee]?\s*[:\-]?\s*(\d+)/);
+  if(mQ1) qty = parseInt(mQ1[1], 10);
+
+  if(!qty || qty <= 0){
+    for(const line of lines){
+      if(/[Qq][Tt][Dd]/i.test(line)){
+        const nm = line.match(/(\d+)/);
+        if(nm){ qty = parseInt(nm[1],10); break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0){
+    const refDigits = ref.slice(1, -1);
+    for(const line of lines){
+      const clean = line.trim();
+      const nm = clean.match(/^(\d{1,4})$/);
+      if(nm && !refDigits.includes(nm[1])){
+        const v = parseInt(nm[1], 10);
+        if(v > 0 && v < 10000){ qty = v; break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0){
+    for(const line of lines){
+      if(line.includes(ref.slice(1,5)) || line.replace(/[Il1]/g,'I').includes(ref.slice(0,5))){
+        const nums = [...line.matchAll(/\b(\d{1,4})\b/g)].map(m=>parseInt(m[1]));
+        const v = nums.find(n => n > 0 && n < 10000 && !ref.includes(String(n).padStart(4,'0')));
+        if(v){ qty = v; break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0){
+    for(const line of lines){
+      if(/\d{2}\.\d{2}(\.\d{2,4})?/.test(line)) continue;
+      const nm = line.match(/\b(\d{1,4})\b/);
+      if(nm){
+        const v = parseInt(nm[1],10);
+        if(v > 0 && v < 10000){ qty = v; break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0) return null;
+  return { ref, qty };
+}
+
+function parseLinkplas(raw){
+  const mR=raw.match(/\bP([^\s]+)/); if(!mR)return null;
+  const mQ=raw.match(/\bQ(\d{9})/);  if(!mQ)return null;
+  const qty=parseInt(mQ[1].slice(3,6),10);
+  if(!qty||qty<=0)return null;
+  return{ref:mR[1],qty};
+}
+
+function parseGeneric(raw){
+  raw=raw.trim();
+  if(raw.startsWith('{')){
+    try{const j=JSON.parse(raw);return{
+      ref:j.ref||j.referencia||j.codigo||Object.values(j)[0]||raw,
+      desc:j.desc||j.descricao||'',
+      qty:parseInt(j.qty||j.qtd||j.quantidade||1),
+      forn:j.forn||j.fornecedor||''
+    };}catch(e){}
+  }
+  if(raw.includes('|')){const p=raw.split('|');return{ref:p[0]||raw,desc:p[1]||'',qty:parseInt(p[2])||1,forn:p[3]||''};}
+  const sep=raw.includes(';')?';':(raw.includes(',')&&raw.includes('='))?',':null;
+  if(sep&&raw.includes('=')){
+    const o={};raw.split(sep).forEach(s=>{const[k,v]=s.split('=');if(k&&v)o[k.trim().toLowerCase()]=v.trim();});
+    return{ref:o.ref||o.referencia||o.codigo||raw,desc:o.desc||o.descricao||'',
+      qty:parseInt(o.qtd||o.qty||o.quantidade||1),forn:o.forn||o.fornecedor||''};
+  }
+  if(raw.includes(';')){const p=raw.split(';');return{ref:p[0]||raw,desc:p[1]||'',qty:parseInt(p[2])||1,forn:p[3]||''};}
+  return{ref:raw,desc:'',qty:1,forn:''};
+}
+
+/* ── handleQR com detecção de duplicata rápida ── */
+let _lastHandledRaw = '';
+let _lastHandledTs  = 0;
+
+function handleQR(raw){
+  if(!session)return;
+
+  // Duplicata exata nos últimos 2s → ignorar e piscar alerta
+  if(raw === _lastHandledRaw && Date.now() - _lastHandledTs < 2000){
+    const existing = document.getElementById('qr-box');
+    if(existing && existing.classList.contains('on')){
+      existing.classList.add('dup-flash');
+      setTimeout(()=>existing.classList.remove('dup-flash'), 400);
+    }
+    toast('QR já lido — aguardando confirmação','wa');
+    return;
+  }
+  _lastHandledRaw = raw;
+  _lastHandledTs  = Date.now();
+
+  let parsed;
+  if(raw.startsWith('SPI_OCR|')){
+    const p=raw.split('|');
+    parsed={ref:p[1]||raw, desc:'', qty:parseInt(p[2])||1, forn:p[3]||session.forn};
+  } else if(isLP(session.forn)){
+    const lp=parseLinkplas(raw);
+    if(!lp){setSt('Padrão LINKPLAS não reconhecido','err');return;}
+    parsed={ref:lp.ref,desc:'',qty:lp.qty,forn:session.forn};
+  } else {
+    // Tentar parser do fornecedor customizado cadastrado
+    const customCfg = fornFindByName(session.forn);
+    if(customCfg && customCfg.tipo !== 'generico'){
+      const c = parseCustomForn(raw, customCfg);
+      if(c){ parsed={ref:c.ref,desc:c.desc||'',qty:c.qty,forn:session.forn}; }
+      else  { setSt('Padrão "'+session.forn+'" não reconhecido','err'); return; }
+    } else {
+      const g=parseGeneric(raw);
+      parsed={...g,forn:g.forn||session.forn};
+    }
+  }
+  pending={...parsed,raw,time:new Date().toLocaleTimeString('pt-BR')};
+  showResult(pending);
+}
+
+function showResult(item){
+  document.getElementById('r-ref').textContent  = item.ref;
+  document.getElementById('r-qty').textContent  = item.qty + ' pç/vol';
+  document.getElementById('r-forn').textContent = item.forn;
+  document.getElementById('r-raw').textContent  = item.raw.length>55?item.raw.slice(0,55)+'…':item.raw;
+  document.getElementById('r-vols').value = 1;
+
+  recalcTotal();
+
+  const ex=grouped[item.ref];
+  const ar=document.getElementById('r-acc-row');
+  const ab=document.getElementById('acc-bar');
+  if(ex){
+    document.getElementById('r-acc').textContent=ex.qty;
+    ar.style.display='flex';
+    ab.textContent=`Ref já possui ${ex.scans} leitura${ex.scans>1?'s':''} · ${ex.qty} pç acumuladas. Será somado.`;
+    ab.classList.add('on');
+  }else{ar.style.display='none';ab.classList.remove('on');}
+
+  document.getElementById('qr-box').classList.add('on');
+  setSt('QR lido — ajuste volumes e confirme','ok');
+  doFlash();
+  const b=document.getElementById('scan-body');
+  setTimeout(()=>b.scrollTo({top:b.scrollHeight,behavior:'smooth'}),80);
+}
+
+function recalcTotal(){
+  if(!pending) return;
+  const vols = Math.max(1, parseInt(document.getElementById('r-vols').value)||1);
+  const total = pending.qty * vols;
+  document.getElementById('r-total').textContent = total + ' pç';
+  const ex=grouped[pending.ref];
+  const ab=document.getElementById('acc-bar');
+  if(ex){
+    const novoTotal = ex.qty + total;
+    document.getElementById('r-acc').textContent=ex.qty;
+    ab.textContent=`Ref já possui ${ex.scans} leitura${ex.scans>1?'s':''} · ${ex.qty} pç acumuladas → novo total: ${novoTotal} pç`;
+    ab.classList.add('on');
+  }
+}
+
+function changeVols(delta){
+  const inp=document.getElementById('r-vols');
+  const v=Math.max(1,(parseInt(inp.value)||1)+delta);
+  inp.value=v;
+  recalcTotal();
+}
+
+function itemConfirm(){
+  if(!pending)return;
+  const vols = Math.max(1, parseInt(document.getElementById('r-vols').value)||1);
+  const totalQty = pending.qty * vols;
+  addItem({...pending, qty: totalQty, vols, qtyPerVol: pending.qty});
+  pending=null;
+  document.getElementById('qr-box').classList.remove('on');
+  lastQR=0;
+  _lastHandledRaw=''; _lastHandledTs=0;
+  if(_scanMode==='ocr' && camOn){
+    setSt('⟳ Aguardando próxima etiqueta…','wa');
+    _ocrLoopStart();
+  } else {
+    setSt('Aponte para o próximo QR Code','ok');
+  }
+}
+
+function itemCancel(){
+  pending=null;
+  document.getElementById('qr-box').classList.remove('on');
+  lastQR=0;
+  _lastHandledRaw=''; _lastHandledTs=0;
+  if(_scanMode==='ocr' && camOn){
+    setSt('⟳ Aguardando etiqueta…','wa');
+    _ocrLoopStart();
+  } else {
+    setSt('Aponte para o QR Code','');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   ITEMS (sessão atual)
+═══════════════════════════════════════════════ */
+function addItem(item){
+  items.push({...item,id:Date.now()});
+  if(!grouped[item.ref])
+    grouped[item.ref]={ref:item.ref,desc:item.desc||'',qty:0,scans:0,forn:item.forn,lastTs:Date.now()};
+  grouped[item.ref].qty  +=item.qty;
+  grouped[item.ref].scans+=1;
+  grouped[item.ref].lastTs=Date.now();
+  sessStateSave();
+  updateDash();
+  const g=grouped[item.ref];
+  const volInfo = item.vols && item.vols>1 ? ` (${item.vols} vol × ${item.qtyPerVol})` : '';
+  toast(g.scans>1
+    ? `${item.ref}  +${item.qty} pç${volInfo}  →  Total: ${g.qty} pç`
+    : `${item.ref}  ·  ${item.qty} pç${volInfo}`);
+}
+
+function manualAdd(){
+  const ref =document.getElementById('m-ref').value.trim();
+  const qty =parseInt(document.getElementById('m-qty').value);
+  const forn=document.getElementById('m-forn').value.trim()||(session?session.forn:'');
+  if(!ref)    {toast('Informe a referência',true);return;}
+  if(!qty||qty<1){toast('Quantidade inválida',true);return;}
+  if(!session){toast('Inicie uma sessão primeiro',true);return;}
+  addItem({ref,desc:'',qty,forn,raw:'manual',time:new Date().toLocaleTimeString('pt-BR')});
+  document.getElementById('m-ref').value='';
+  document.getElementById('m-qty').value='';
+}
+
+function listaClear(){
+  items=[];grouped={};sessStateSave();updateDash();renderList();toast('Lista limpa');
+}
+
+function processManualQR(){
+  if(!session){ toast('Inicie uma sessão primeiro',true); return; }
+  const raw = document.getElementById('qr-text-input').value.trim();
+  if(!raw){ toast('Digite o conteúdo do QR Code',true); return; }
+  document.getElementById('qr-text-input').value='';
+  handleQR(raw);
+  toast('Código processado','ok');
+}
+
+/* ═══════════════════════════════════════════════
+   EDIÇÃO DE ITEM (sessão atual)
+═══════════════════════════════════════════════ */
+function openEdit(ref){
+  const r=grouped[ref];
+  if(!r)return;
+  editRef=ref;
+  document.getElementById('ed-ref').value =r.ref;
+  document.getElementById('ed-qty').value =r.qty;
+  document.getElementById('ed-forn').value=r.forn;
+  document.getElementById('mdl-edit').classList.add('on');
+}
+function editClose(){ document.getElementById('mdl-edit').classList.remove('on'); editRef=null; }
+function editSave(){
+  if(!editRef)return;
+  const newRef =document.getElementById('ed-ref').value.trim();
+  const newQty =parseInt(document.getElementById('ed-qty').value);
+  const newForn=document.getElementById('ed-forn').value.trim();
+  if(!newRef)    {toast('Informe a referência',true);return;}
+  if(!newQty||newQty<1){toast('Quantidade inválida',true);return;}
+  items.forEach(i=>{ if(i.ref===editRef){ i.ref=newRef; i.forn=newForn; } });
+  const old=grouped[editRef];
+  delete grouped[editRef];
+  if(!grouped[newRef])
+    grouped[newRef]={ref:newRef,desc:old.desc,qty:0,scans:0,forn:newForn,lastTs:old.lastTs||Date.now()};
+  grouped[newRef].qty  =newQty;
+  grouped[newRef].scans=old.scans;
+  grouped[newRef].forn =newForn;
+  sessStateSave();
+  editClose();
+  renderList();
+  updateDash();
+  toast('Item atualizado');
+}
+function deleteRef(ref){
+  mc(`Remover "${ref}"`,`Todos os registros desta referência serão removidos.`,()=>{
+    items=items.filter(i=>i.ref!==ref);
+    delete grouped[ref];
+    sessStateSave();
+    updateDash();renderList();
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER LIST (sessão atual) — com ordenação
+═══════════════════════════════════════════════ */
+function renderList(){
+  const q=(document.getElementById('search').value||'').toLowerCase();
+  const tot=Object.values(grouped).reduce((s,r)=>s+r.qty,0);
+  const refs=Object.keys(grouped).length;
+  document.getElementById('ls-scans').textContent=items.length;
+  document.getElementById('ls-cxas').textContent =tot;
+  document.getElementById('ls-refs').textContent =refs;
+
+  let rows=Object.values(grouped).filter(r=>!q||r.ref.toLowerCase().includes(q));
+
+  switch(_sortMode){
+    case 'qty': rows.sort((a,b)=>b.qty-a.qty); break;
+    case 'rec': rows.sort((a,b)=>(b.lastTs||0)-(a.lastTs||0)); break;
+    default:    rows.sort((a,b)=>a.ref.localeCompare(b.ref)); break;
+  }
+
+  const el=document.getElementById('ilist');
+  if(!rows.length){
+    el.innerHTML=`<div class="empty"><div class="ei">· · ·</div><div class="et">${refs?'Nenhum resultado':'Nenhum item registrado'}</div></div>`;
+    return;
+  }
+  // Usa createElement para segurança em vez de innerHTML com dados do usuário
+  el.innerHTML='';
+  rows.forEach(r=>{
+    const div=document.createElement('div');
+    div.className='ic'+(r.scans>1?' multi':'');
+
+    const info=document.createElement('div');
+    info.style.cssText='flex:1;min-width:0';
+    info.setAttribute('role','button');
+    info.setAttribute('aria-label',`Editar ${r.ref}`);
+    info.onclick=()=>openEdit(r.ref);
+
+    const ref=document.createElement('div');
+    ref.className='iref'; ref.textContent=r.ref;
+
+    const meta=document.createElement('div');
+    meta.className='imeta';
+    meta.textContent=(r.forn||'');
+    if(r.scans>1){
+      const tag=document.createElement('span');
+      tag.className='itag'; tag.textContent=`${r.scans} leituras`;
+      meta.append(' · ', tag);
+    }
+
+    info.append(ref, meta);
+
+    const qty=document.createElement('div');
+    qty.className='iqty'; qty.textContent=r.qty;
+    qty.setAttribute('role','button'); qty.onclick=()=>openEdit(r.ref);
+
+    const del=document.createElement('button');
+    del.className='idel'; del.textContent='✕';
+    del.setAttribute('aria-label',`Remover ${r.ref}`);
+    del.onclick=()=>deleteRef(r.ref);
+
+    div.append(info, qty, del);
+    el.appendChild(div);
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   HISTÓRICO — com busca e filtro por fornecedor
+═══════════════════════════════════════════════ */
+function setHistFilter(forn){
+  _histFilter = forn;
+  document.querySelectorAll('.hftab').forEach(t=>{
+    t.classList.toggle('active', t.textContent==='Todos' ? forn==='todos' : t.dataset.forn===forn);
+  });
+  renderHist();
+}
+
+function renderHist(){
+  const arr=histLoad();
+  document.getElementById('d-hist').textContent=arr.length;
+
+  // Atualizar tabs de filtro
+  const filterEl=document.getElementById('hist-filter');
+  if(filterEl){
+    const fornList=['todos',...new Set(arr.map(h=>h.forn).filter(Boolean))];
+    filterEl.innerHTML=fornList.map(f=>`
+      <div class="hftab${(_histFilter===f||(_histFilter==='todos'&&f==='todos'))?' active':''}"
+        data-forn="${h_(f)}"
+        onclick="setHistFilter('${ea(f)}')">${h_(f==='todos'?'Todos':f)}</div>
+    `).join('');
+  }
+
+  const q=(document.getElementById('hist-search').value||'').toLowerCase();
+
+  const filtered = arr.filter(h=>{
+    const matchFilter = _histFilter==='todos' || h.forn===_histFilter;
+    const matchSearch = !q || (h.forn||'').toLowerCase().includes(q)
+      || (h.nf||'').toLowerCase().includes(q);
+    return matchFilter && matchSearch;
+  });
+
+  const el=document.getElementById('hist-list');
+  if(!filtered.length){
+    el.innerHTML=`<div class="empty"><div class="ei">· · ·</div><div class="et">${arr.length?'Nenhum resultado':'Nenhuma contagem salva'}</div></div>`;
+    return;
+  }
+
+  el.innerHTML='';
+  filtered.forEach(hs=>{
+    const refs=Object.keys(hs.grouped||{}).length;
+    const cxas=Object.values(hs.grouped||{}).reduce((s,r)=>s+r.qty,0);
+
+    const card=document.createElement('div');
+    card.className='hcard';
+
+    card.innerHTML=`
+      <div class="hcard-head">
+        <div>
+          <div class="hcard-forn">${h_(hs.forn)}${hs.nf?` <span style="font-size:.6rem;color:var(--mu2)">· ${h_(hs.nf)}</span>`:''}</div>
+          <div class="hcard-date">${hs.start} → ${hs.end||'—'}</div>
+        </div>
+        <button class="hdel" aria-label="Excluir contagem">✕</button>
+      </div>
+      <div class="hcard-stats">
+        <div class="hstat"><b>${refs}</b> refs</div>
+        <div class="hstat"><b>${cxas}</b> peças</div>
+        <div class="hstat"><b>${hs.scans||0}</b> scans</div>
+      </div>
+      <button class="btn btn-x" style="margin-top:10px;margin-bottom:0;font-size:.72rem;padding:8px">Ver Detalhes / Exportar</button>
+    `;
+    card.querySelector('.hdel').onclick=(e)=>{ e.stopPropagation(); delHist(hs.id); };
+    card.querySelector('.btn').onclick=()=>openHistDet(hs.id);
+    el.appendChild(card);
+  });
+}
+
+// Alias seguro de h() para uso em template strings de renderHist
+function h_(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function delHist(id){
+  mc('Excluir Contagem','Esta contagem será removida permanentemente do histórico.',()=>{
+    histDel(id);
+    renderHist();
+    updateDash();
+    toast('Contagem excluída');
+  });
+}
+
+function openHistDet(id){
+  const arr=histLoad();
+  const hs=arr.find(x=>x.id===id);
+  if(!hs)return;
+  viewHist=hs;
+  histEditMode=false;
+  histEditRef=null;
+
+  document.getElementById('hdet-title').textContent=hs.forn;
+  document.getElementById('hdet-info').innerHTML=
+    `Fornecedor: <b style="color:var(--cy)">${h_(hs.forn)}</b>${hs.nf?` · NF: ${h_(hs.nf)}`:''}<br>`+
+    `Início: ${hs.start}  ·  Fim: ${hs.end||'—'}`;
+
+  document.getElementById('btn-hdet-edit').style.display='block';
+  document.getElementById('btn-hdet-edit').textContent='Editar';
+  document.getElementById('hdet-edit-bar').style.display='none';
+
+  renderHistDet();
+  navTo('pg-hist-det');
+}
+
+function renderHistDet(){
+  if(!viewHist)return;
+  const rows=Object.values(viewHist.grouped||{}).sort((a,b)=>b.qty-a.qty);
+  const tot =rows.reduce((s,r)=>s+r.qty,0);
+  const refs=rows.length;
+
+  document.getElementById('hd-scans').textContent=viewHist.scans||0;
+  document.getElementById('hd-cxas').textContent =tot;
+  document.getElementById('hd-refs').textContent =refs;
+
+  const listEl=document.getElementById('hdet-list');
+  listEl.innerHTML='';
+
+  rows.forEach(r=>{
+    const div=document.createElement('div');
+    div.className='hic'+(r.scans>1?' multi':'');
+
+    const info=document.createElement('div');
+    info.style.cssText='flex:1;min-width:0';
+    if(histEditMode){ info.setAttribute('role','button'); info.onclick=()=>openHistItemEdit(r.ref); }
+
+    const ref=document.createElement('div');
+    ref.className='iref'; ref.textContent=r.ref;
+
+    const meta=document.createElement('div');
+    meta.className='imeta'; meta.textContent=(r.forn||'');
+    if(r.scans>1){
+      const tag=document.createElement('span');
+      tag.className='itag'; tag.textContent=`${r.scans} leituras`;
+      meta.append(' · ',tag);
+    }
+    info.append(ref,meta);
+
+    const qty=document.createElement('div');
+    qty.className='iqty'; qty.textContent=r.qty;
+    if(histEditMode) qty.onclick=()=>openHistItemEdit(r.ref);
+
+    div.append(info,qty);
+
+    if(histEditMode){
+      const del=document.createElement('button');
+      del.className='idel'; del.textContent='✕';
+      del.setAttribute('aria-label',`Remover ${r.ref}`);
+      del.onclick=()=>deleteHistRef(r.ref);
+      div.appendChild(del);
+    }
+    listEl.appendChild(div);
+  });
+
+  buildHistExport(viewHist,rows,tot);
+  document.getElementById('hdet-exp').style.display='block';
+}
+
+function toggleHistEdit(){
+  histEditMode=!histEditMode;
+  const btn=document.getElementById('btn-hdet-edit');
+  const bar=document.getElementById('hdet-edit-bar');
+  if(histEditMode){
+    btn.textContent='Concluir';
+    btn.style.color='var(--wa)';
+    bar.style.display='block';
+    toast('Modo edição ativado','wa');
+  } else {
+    btn.textContent='Editar';
+    btn.style.color='';
+    bar.style.display='none';
+    toast('Edições salvas');
+  }
+  renderHistDet();
+}
+
+function openHistItemEdit(ref){
+  if(!histEditMode||!viewHist)return;
+  const r=viewHist.grouped[ref];
+  if(!r)return;
+  histEditRef=ref;
+  document.getElementById('hed-ref').value =r.ref;
+  document.getElementById('hed-qty').value =r.qty;
+  document.getElementById('hed-forn').value=r.forn||'';
+  document.getElementById('mdl-hist-edit').classList.add('on');
+}
+
+function histEditClose(){
+  document.getElementById('mdl-hist-edit').classList.remove('on');
+  histEditRef=null;
+}
+
+function histEditSave(){
+  if(!histEditRef||!viewHist)return;
+  const newRef =document.getElementById('hed-ref').value.trim();
+  const newQty =parseInt(document.getElementById('hed-qty').value);
+  const newForn=document.getElementById('hed-forn').value.trim();
+  if(!newRef){toast('Informe a referência',true);return;}
+  if(!newQty||newQty<1){toast('Quantidade inválida',true);return;}
+
+  const old=viewHist.grouped[histEditRef];
+  delete viewHist.grouped[histEditRef];
+  if(!viewHist.grouped[newRef])
+    viewHist.grouped[newRef]={ref:newRef,desc:old.desc||'',qty:0,scans:old.scans||1,forn:newForn};
+  viewHist.grouped[newRef].qty  =newQty;
+  viewHist.grouped[newRef].forn =newForn;
+  viewHist.scans=Object.values(viewHist.grouped).reduce((s,r)=>s+(r.scans||1),0);
+
+  histUpdate(viewHist.id, viewHist);
+  histEditClose();
+  renderHistDet();
+  updateDash();
+  toast('Item atualizado');
+}
+
+function deleteHistRef(ref){
+  if(!histEditMode||!viewHist)return;
+  mc(`Remover "${ref}"`,`Esta referência será removida da contagem.`,()=>{
+    delete viewHist.grouped[ref];
+    viewHist.scans=Object.values(viewHist.grouped).reduce((s,r)=>s+(r.scans||1),0);
+    histUpdate(viewHist.id, viewHist);
+    renderHistDet();
+    updateDash();
+  });
+}
+
+function openHistAddItem(){
+  document.getElementById('hadd-ref').value='';
+  document.getElementById('hadd-qty').value='';
+  document.getElementById('hadd-forn').value=viewHist?viewHist.forn:'';
+  document.getElementById('mdl-hist-add').classList.add('on');
+}
+function histAddClose(){ document.getElementById('mdl-hist-add').classList.remove('on'); }
+function histAddSave(){
+  if(!viewHist)return;
+  const ref =document.getElementById('hadd-ref').value.trim();
+  const qty =parseInt(document.getElementById('hadd-qty').value);
+  const forn=document.getElementById('hadd-forn').value.trim()||viewHist.forn;
+  if(!ref){toast('Informe a referência',true);return;}
+  if(!qty||qty<1){toast('Quantidade inválida',true);return;}
+
+  if(!viewHist.grouped) viewHist.grouped={};
+  if(viewHist.grouped[ref]){
+    viewHist.grouped[ref].qty  +=qty;
+    viewHist.grouped[ref].scans+=1;
+  } else {
+    viewHist.grouped[ref]={ref,desc:'',qty,scans:1,forn};
+  }
+  viewHist.scans=(viewHist.scans||0)+1;
+
+  histUpdate(viewHist.id, viewHist);
+  histAddClose();
+  renderHistDet();
+  updateDash();
+  toast(`${ref} adicionado`);
+}
+
+function buildHistExport(hs,rows,tot){
+  let t='RECEBIMENTO DE MERCADORIAS\n';
+  t+=`Fornecedor : ${hs.forn}\n`;
+  if(hs.nf)t+=`NF / Pedido: ${hs.nf}\n`;
+  t+=`Inicio     : ${hs.start}\n`;
+  t+=`Fim        : ${hs.end||'—'}\n`;
+  t+=`Exportado  : ${new Date().toLocaleString('pt-BR')}\n`;
+  t+=`${'-'.repeat(44)}\n`;
+  t+=`${'REFERENCIA'.padEnd(16)}${'LEIT'.padStart(6)}${'PECAS'.padStart(8)}\n`;
+  t+=`${'-'.repeat(44)}\n`;
+  rows.forEach(r=>{t+=`${r.ref.slice(0,15).padEnd(16)}${String(r.scans).padStart(6)}${String(r.qty).padStart(8)}\n`;});
+  t+=`${'-'.repeat(44)}\n${'TOTAL'.padEnd(16)}${String(hs.scans||0).padStart(6)}${String(tot).padStart(8)}\n`;
+  document.getElementById('hdet-exbox').textContent=t;
+}
+
+function exportHistCSV(){
+  if(!viewHist)return;
+  const rows=[['Referencia','Descricao','Leituras','Pecas','Fornecedor','NF','Inicio','Fim']];
+  Object.values(viewHist.grouped||{}).forEach(r=>{
+    rows.push([r.ref,r.desc||'',r.scans,r.qty,r.forn,viewHist.nf||'',viewHist.start,viewHist.end||'']);
+  });
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`${viewHist.forn.replace(/\s/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();URL.revokeObjectURL(url);toast('CSV exportado');
+}
+
+function copyHist(){
+  navigator.clipboard.writeText(document.getElementById('hdet-exbox').textContent)
+    .then(()=>toast('Copiado')).catch(()=>toast('Erro ao copiar',true));
+}
+
+/* ═══════════════════════════════════════════════
+   MODAL CONFIRMAÇÃO
+═══════════════════════════════════════════════ */
+function mc(title,msg,cb){
+  document.getElementById('mc-title').textContent=title;
+  document.getElementById('mc-msg').textContent=msg;
+  mcCb=cb;
+  document.getElementById('mdl-conf').classList.add('on');
+  document.getElementById('mc-ok').onclick=()=>{mcClose();if(mcCb)mcCb();};
+}
+function mcClose(){document.getElementById('mdl-conf').classList.remove('on');}
+
+/* ═══════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════ */
+let tT;
+function toast(msg,type=false){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='on'+(type===true?' err':type==='wa'?' wa':'');
+  clearTimeout(tT);tT=setTimeout(()=>t.className='',2800);
+}
+function doFlash(){
+  const f=document.getElementById('flash');
+  f.classList.add('on');setTimeout(()=>f.classList.remove('on'),140);
+}
+function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+const e=h;
+function ea(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+sessStateLoad();
+if(session){
+  document.getElementById('card-sess').style.display   = 'none';
+  document.getElementById('card-cam').style.display    = 'block';
+  document.getElementById('card-manual').style.display = 'block';
+  document.getElementById('card-acoes').style.display  = 'block';
+  _applyFornBadges(session.forn);
+  document.getElementById('sess-tag').textContent      = session.forn.toUpperCase();
+  document.getElementById('m-forn').value              = session.forn;
+}
+initEngines();
+updateDash();
+// Verificar tamanho do storage ao iniciar
+try{
+  const kb=(JSON.stringify(localStorage)).length*2/1024;
+  if(kb>3500) document.getElementById('storage-warn').classList.add('on');
+}catch(e){}
+
+/* ═══════════════════════════════════════════════
+   IA ASSISTENTE DE FORNECEDORES — OpenAI
+═══════════════════════════════════════════════ */
+
+let _aiLastResult = null;
+
+/* ── Gerenciar chave ── */
+function aiKeySave(){
+  const k = document.getElementById('ai-api-key').value.trim();
+  if(!k){ toast('Cole a chave antes de salvar',true); return; }
+  if(!k.startsWith('sk-')){ toast('Chave inválida — deve começar com sk-',true); return; }
+  localStorage.setItem('rcb_ai_key', k);
+  aiTabInit();
+  toast('Chave IA salva');
+}
+
+function aiKeyClear(){
+  localStorage.removeItem('rcb_ai_key');
+  document.getElementById('ai-api-key').value='';
+  aiTabInit();
+  toast('Chave removida');
+}
+
+function aiKeyCheck(){
+  const v = document.getElementById('ai-api-key').value.trim();
+  const el = document.getElementById('ai-key-status');
+  if(v.startsWith('sk-') && v.length > 20){
+    el.textContent='✓ VÁLIDA'; el.className='key-src emb';
+  } else if(v.length>0){
+    el.textContent='INVÁLIDA'; el.className='key-src none';
+  } else {
+    const saved = localStorage.getItem('rcb_ai_key');
+    el.textContent = saved ? '✓ SALVA' : 'SEM CHAVE';
+    el.className = saved ? 'key-src ls' : 'key-src none';
+  }
+}
+
+function aiTabInit(){
+  const saved = localStorage.getItem('rcb_ai_key');
+  const el = document.getElementById('ai-key-status');
+  if(saved){
+    el.textContent='✓ ATIVA'; el.className='key-src emb';
+    document.getElementById('ai-api-key').value='';
+  } else {
+    el.textContent='SEM CHAVE'; el.className='key-src none';
+  }
+}
+
+/* ── Analisar etiqueta ── */
+async function aiAnalyze(){
+  const key  = localStorage.getItem('rcb_ai_key');
+  if(!key){ toast('Configure a chave IA na aba 🤖 IA primeiro',true); return; }
+
+  const raw   = document.getElementById('ai-label-raw').value.trim();
+  const forn  = document.getElementById('ai-forn-nome').value.trim();
+  const rules = document.getElementById('ai-user-rules').value.trim();
+
+  if(!raw){ toast('Cole o conteúdo da etiqueta',true); return; }
+
+  const card = document.getElementById('ai-result-card');
+  card.style.display = 'block';
+  document.getElementById('ai-thinking').classList.add('on');
+  document.getElementById('ai-result').classList.remove('on');
+  document.getElementById('ai-analyze-btn').disabled = true;
+  document.getElementById('ai-analyze-btn').textContent = '⏳ Analisando...';
+  setTimeout(()=>card.scrollIntoView({behavior:'smooth',block:'start'}),100);
+
+  const systemPrompt = `Você é um especialista em sistemas de recebimento de mercadorias e leitura de etiquetas industriais/logísticas. Analise etiquetas e retorne APENAS JSON válido, sem markdown, sem texto fora do JSON.`;
+
+  const userPrompt = `Analise a etiqueta abaixo e retorne um JSON estruturado.
+
+FORNECEDOR: ${forn || '(não informado)'}
+CONTEÚDO DA ETIQUETA:
+${raw}
+${rules ? `\nREGRAS INFORMADAS PELO USUÁRIO:\n${rules}` : ''}
+
+Retorne APENAS um JSON válido com esta estrutura:
+{
+  "analise": "Descrição clara em português do que foi identificado na etiqueta, estrutura detectada, campos encontrados, padrão reconhecido",
+  "campos_detectados": {
+    "referencia": "valor detectado ou null",
+    "quantidade": "valor detectado ou null",
+    "outros": ["lista de outros campos relevantes detectados"]
+  },
+  "regras_sugeridas": [
+    {
+      "nome": "Nome descritivo da regra",
+      "tipo": "regex|pipe|kv|posicional|json|generico",
+      "confianca": "alta|media|baixa",
+      "descricao": "Explicação clara de como esta regra funciona",
+      "config": {
+        "refRegex": "regex se tipo=regex",
+        "qtyRegex": "regex se tipo=regex e houver quantidade",
+        "qtyDiv": 1,
+        "refStrip": "",
+        "pipeSep": "|",
+        "pipeRef": 0,
+        "pipeQty": 2,
+        "pipeDesc": 1,
+        "kvRef": "REF",
+        "kvQty": "QTD",
+        "kvSep": ";",
+        "kvEq": "=",
+        "posRefS": 0,
+        "posRefE": 12,
+        "posQtyS": 12,
+        "posQtyE": 17,
+        "posDiv": 1
+      },
+      "preview": "Exemplo: Ref=XXXX Qtd=10"
+    }
+  ],
+  "validacao_usuario": ${rules ? '"Análise das regras informadas: valide se estão corretas, aponte erros ou confirme"' : 'null'},
+  "recomendacoes": "Sugestões de padronização ou null se etiqueta já está bem estruturada",
+  "inconsistencias": ["lista de ambiguidades ou problemas detectados, pode ser array vazio"]
+}`;
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + key
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        max_tokens: 2000,
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userPrompt   }
+        ]
+      })
+    });
+
+    if(!resp.ok){
+      const err = await resp.json().catch(()=>({error:{message:'Erro desconhecido'}}));
+      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content || '';
+
+    let result;
+    try {
+      const clean = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+      result = JSON.parse(clean);
+    } catch(pe) {
+      throw new Error('IA retornou formato inesperado. Tente novamente.');
+    }
+
+    _aiLastResult = result;
+    aiRenderResult(result, forn);
+
+  } catch(err) {
+    document.getElementById('ai-thinking').classList.remove('on');
+    toast('Erro IA: ' + err.message, true);
+    card.style.display = 'none';
+  } finally {
+    document.getElementById('ai-analyze-btn').disabled = false;
+    document.getElementById('ai-analyze-btn').textContent = '🤖 Analisar com IA';
+  }
+}
+
+/* ── Renderizar resultado ── */
+function aiRenderResult(r, forn){
+  document.getElementById('ai-thinking').classList.remove('on');
+  document.getElementById('ai-result').classList.add('on');
+
+  let analHtml = aiFormatText(r.analise || '');
+  if(r.campos_detectados){
+    const c = r.campos_detectados;
+    analHtml += '<div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--bd)">';
+    if(c.referencia) analHtml += `<div>Referência detectada: <code>${h(c.referencia)}</code></div>`;
+    if(c.quantidade)  analHtml += `<div>Quantidade detectada: <code>${h(c.quantidade)}</code></div>`;
+    if(c.outros && c.outros.length)
+      analHtml += `<div>Outros campos: ${c.outros.map(x=>`<code>${h(x)}</code>`).join(', ')}</div>`;
+    analHtml += '</div>';
+  }
+  if(r.inconsistencias && r.inconsistencias.length){
+    analHtml += '<div style="margin-top:6px;color:var(--wa)">';
+    r.inconsistencias.forEach(i=>{ analHtml += `<div>⚠ ${h(i)}</div>`; });
+    analHtml += '</div>';
+  }
+  document.getElementById('ai-analysis-text').innerHTML = analHtml;
+
+  const rulesList = document.getElementById('ai-rules-list');
+  rulesList.innerHTML = '';
+  const tipoLabel={regex:'Regex',pipe:'Pipe',kv:'Chave-Valor',posicional:'Posicional',json:'JSON',generico:'Genérico'};
+  const tipoBadge={regex:'r',pipe:'p',kv:'k',posicional:'pos',json:'j',generico:'g'};
+  const confColor={alta:'var(--gr)',media:'var(--wa)',baixa:'var(--re)'};
+
+  (r.regras_sugeridas||[]).forEach((rule)=>{
+    const card = document.createElement('div');
+    card.className = 'ai-rule-card';
+    card.innerHTML = `
+      <div class="ai-rule-card-head">
+        <div class="ai-rule-name">${h(rule.nome)}</div>
+        <div style="display:flex;gap:5px;align-items:center">
+          <span style="font-size:.48rem;color:${confColor[rule.confianca]||'var(--mu2)'};font-family:var(--R);font-weight:700;letter-spacing:.5px">${(rule.confianca||'').toUpperCase()}</span>
+          <span class="ai-rule-badge ${tipoBadge[rule.tipo]||'g'}">${tipoLabel[rule.tipo]||rule.tipo}</span>
+        </div>
+      </div>
+      <div class="ai-rule-detail">${aiFormatText(rule.descricao||'')}</div>
+      ${rule.preview ? `<div style="margin-top:5px;font-size:.56rem;color:var(--gr)">▸ ${h(rule.preview)}</div>` : ''}
+      <div class="ai-rule-apply">↓ Toque para aplicar esta regra ao cadastro</div>
+    `;
+    card.addEventListener('click', ()=> aiApplyRule(rule, forn));
+    rulesList.appendChild(card);
+  });
+
+  if(!(r.regras_sugeridas||[]).length){
+    rulesList.innerHTML = '<div style="font-size:.6rem;color:var(--wa);padding:8px 0">Nenhuma regra específica sugerida. Use o parser Genérico.</div>';
+  }
+
+  const userRules = document.getElementById('ai-user-rules').value.trim();
+  const valSec = document.getElementById('ai-validation-section');
+  const valSep = document.getElementById('ai-validation-sep');
+  if(userRules && r.validacao_usuario){
+    document.getElementById('ai-validation-text').innerHTML = aiFormatText(r.validacao_usuario);
+    valSec.style.display='block'; valSep.style.display='block';
+  } else {
+    valSec.style.display='none'; valSep.style.display='none';
+  }
+
+  const recSec = document.getElementById('ai-recommendations-section');
+  const recSep = document.getElementById('ai-rec-sep');
+  if(r.recomendacoes && r.recomendacoes !== 'null'){
+    document.getElementById('ai-recommendations-text').innerHTML = aiFormatText(r.recomendacoes);
+    recSec.style.display='block'; recSep.style.display='block';
+  } else {
+    recSec.style.display='none'; recSep.style.display='none';
+  }
+
+  const goBtn = document.getElementById('ai-go-register');
+  goBtn.style.display = (r.regras_sugeridas && r.regras_sugeridas.length) ? 'block' : 'none';
+}
+
+/* ── Aplicar regra ao formulário ── */
+function aiApplyRule(rule, forn){
+  if(forn) document.getElementById('fn-nome').value = forn.toUpperCase();
+  const tipo = rule.tipo || 'generico';
+  document.getElementById('fn-tipo').value = tipo;
+  fornTipoChange();
+
+  const c = rule.config || {};
+  if(tipo==='regex'){
+    if(c.refRegex) document.getElementById('fn-ref-regex').value = c.refRegex;
+    if(c.qtyRegex) document.getElementById('fn-qty-regex').value = c.qtyRegex;
+    if(c.qtyDiv)   document.getElementById('fn-qty-div').value   = c.qtyDiv;
+    if(c.refStrip) document.getElementById('fn-ref-strip').value = c.refStrip;
+  } else if(tipo==='pipe'){
+    if(c.pipeSep !== undefined) document.getElementById('fn-pipe-sep').value  = c.pipeSep;
+    if(c.pipeRef !== undefined) document.getElementById('fn-pipe-ref').value  = c.pipeRef;
+    if(c.pipeQty !== undefined) document.getElementById('fn-pipe-qty').value  = c.pipeQty;
+    if(c.pipeDesc!== undefined) document.getElementById('fn-pipe-desc').value = c.pipeDesc;
+  } else if(tipo==='kv'){
+    if(c.kvRef) document.getElementById('fn-kv-ref').value = c.kvRef;
+    if(c.kvQty) document.getElementById('fn-kv-qty').value = c.kvQty;
+    if(c.kvSep) document.getElementById('fn-kv-sep').value = c.kvSep;
+    if(c.kvEq)  document.getElementById('fn-kv-eq').value  = c.kvEq;
+  } else if(tipo==='posicional'){
+    if(c.posRefS!==undefined) document.getElementById('fn-pos-ref-s').value = c.posRefS;
+    if(c.posRefE!==undefined) document.getElementById('fn-pos-ref-e').value = c.posRefE;
+    if(c.posQtyS!==undefined) document.getElementById('fn-pos-qty-s').value = c.posQtyS;
+    if(c.posQtyE!==undefined) document.getElementById('fn-pos-qty-e').value = c.posQtyE;
+    if(c.posDiv !== undefined) document.getElementById('fn-pos-div').value  = c.posDiv;
+  }
+
+  const raw = document.getElementById('ai-label-raw').value.trim();
+  if(raw) document.getElementById('fn-test-raw').value = raw;
+
+  fornTabShow('cadastrar');
+  toast('✓ Regra "'+rule.nome+'" aplicada ao formulário');
+  setTimeout(()=>fornTestParser(), 300);
+}
+
+/* ── Ir para cadastro com a melhor regra ── */
+function aiGoToRegister(){
+  if(!_aiLastResult) return;
+  const forn  = document.getElementById('ai-forn-nome').value.trim();
+  const rules = _aiLastResult.regras_sugeridas || [];
+  const best = rules.find(r=>r.confianca==='alta') || rules[0];
+  if(best) aiApplyRule(best, forn);
+  else fornTabShow('cadastrar');
+}
+
+/* ── Formatar texto ── */
+function aiFormatText(txt){
+  if(!txt) return '';
+  return h(txt)
+    .replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\n/g,'<br>');
+}
+
+/* ═══════════════════════════════════════════════
+   IA INLINE — ASSISTENTE DENTRO DO CADASTRO
+═══════════════════════════════════════════════ */
+let _aiChatHistory   = [];   // [{role,content}]
+let _aiChatOpen      = true;
+let _aiChatBusy      = false;
+
+/* ── Inicializar painel ao entrar na aba cadastrar ── */
+function aiInlineInit(){
+  const key = localStorage.getItem('rcb_ai_key');
+  const st  = document.getElementById('ai-inline-status');
+  const nokey = document.getElementById('ai-chat-nokey');
+  const send  = document.getElementById('ai-chat-send-btn');
+  const inp   = document.getElementById('ai-chat-input');
+  if(key){
+    st.textContent='✓ ATIVA'; st.className='key-src emb';
+    if(nokey) nokey.style.display='none';
+    if(send) send.disabled=false;
+    if(inp) inp.disabled=false;
+  } else {
+    st.textContent='SEM CHAVE'; st.className='key-src none';
+    if(nokey) nokey.style.display='block';
+    if(send) send.disabled=true;
+    if(inp) inp.disabled=true;
+  }
+  // Mensagem de boas-vindas se histórico vazio
+  if(_aiChatHistory.length===0 && key){
+    aiChatAddMsg('sys','💡 Cole uma etiqueta de exemplo e descreva o que precisa. Eu ajusto as regras automaticamente.');
+  }
+}
+
+/* ── Abrir/fechar painel ── */
+function aiChatToggle(){
+  _aiChatOpen = !_aiChatOpen;
+  const body = document.getElementById('ai-chat-body');
+  const ico  = document.getElementById('ai-chat-toggle-ico');
+  body.classList.toggle('open', _aiChatOpen);
+  ico.classList.toggle('open', _aiChatOpen);
+}
+
+/* ── Auto-resize textarea ── */
+function aiChatResize(el){
+  el.style.height='auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
+/* ── Enter envia, Shift+Enter quebra linha ── */
+function aiChatKey(e){
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); aiChatSend(); }
+}
+
+/* ── Chips de sugestão rápida ── */
+function aiChatHint(txt){
+  const inp = document.getElementById('ai-chat-input');
+  inp.value = txt;
+  inp.focus();
+  aiChatResize(inp);
+}
+
+/* ── Adicionar mensagem na UI ── */
+function aiChatAddMsg(type, html, scroll=true){
+  const box = document.getElementById('ai-chat-msgs');
+  const el  = document.createElement('div');
+  el.className = 'ai-msg ' + type;
+  el.innerHTML = html;
+  box.appendChild(el);
+  if(scroll) setTimeout(()=>{ box.scrollTop = box.scrollHeight; }, 50);
+  return el;
+}
+
+/* ── Indicador "digitando" ── */
+function aiChatTyping(){
+  const box = document.getElementById('ai-chat-msgs');
+  const el  = document.createElement('div');
+  el.className = 'ai-msg-typing';
+  el.id = 'ai-typing-indicator';
+  el.innerHTML = '<div class="ai-dots"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div><span>IA analisando...</span>';
+  box.appendChild(el);
+  setTimeout(()=>{ box.scrollTop = box.scrollHeight; }, 50);
+}
+
+function aiChatTypingRemove(){
+  const el = document.getElementById('ai-typing-indicator');
+  if(el) el.remove();
+}
+
+/* ── Ler estado atual do formulário ── */
+function aiChatReadForm(){
+  const tipo = document.getElementById('fn-tipo').value;
+  const nome = document.getElementById('fn-nome').value.trim();
+  const raw  = document.getElementById('fn-test-raw').value.trim();
+  let cfg = { nome, tipo };
+
+  if(tipo==='regex'){
+    cfg.refRegex = document.getElementById('fn-ref-regex').value;
+    cfg.qtyRegex = document.getElementById('fn-qty-regex').value;
+    cfg.qtyDiv   = document.getElementById('fn-qty-div').value;
+    cfg.refStrip = document.getElementById('fn-ref-strip').value;
+  } else if(tipo==='pipe'){
+    cfg.pipeSep  = document.getElementById('fn-pipe-sep').value;
+    cfg.pipeRef  = document.getElementById('fn-pipe-ref').value;
+    cfg.pipeQty  = document.getElementById('fn-pipe-qty').value;
+    cfg.pipeDesc = document.getElementById('fn-pipe-desc').value;
+  } else if(tipo==='kv'){
+    cfg.kvRef = document.getElementById('fn-kv-ref').value;
+    cfg.kvQty = document.getElementById('fn-kv-qty').value;
+    cfg.kvSep = document.getElementById('fn-kv-sep').value;
+    cfg.kvEq  = document.getElementById('fn-kv-eq').value;
+  } else if(tipo==='posicional'){
+    cfg.posRefS = document.getElementById('fn-pos-ref-s').value;
+    cfg.posRefE = document.getElementById('fn-pos-ref-e').value;
+    cfg.posQtyS = document.getElementById('fn-pos-qty-s').value;
+    cfg.posQtyE = document.getElementById('fn-pos-qty-e').value;
+    cfg.posDiv  = document.getElementById('fn-pos-div').value;
+  }
+  return { cfg, raw };
+}
+
+/* ── Aplicar JSON de atualização da IA nos campos ── */
+function aiChatApplyUpdate(update){
+  if(!update) return;
+  const { tipo, config, testRaw } = update;
+
+  if(tipo){
+    document.getElementById('fn-tipo').value = tipo;
+    fornTipoChange();
+  }
+  if(config){
+    const c = config;
+    const t = document.getElementById('fn-tipo').value;
+    if(t==='regex'){
+      if(c.refRegex !== undefined) document.getElementById('fn-ref-regex').value = c.refRegex;
+      if(c.qtyRegex !== undefined) document.getElementById('fn-qty-regex').value = c.qtyRegex;
+      if(c.qtyDiv   !== undefined) document.getElementById('fn-qty-div').value   = c.qtyDiv;
+      if(c.refStrip !== undefined) document.getElementById('fn-ref-strip').value = c.refStrip;
+    } else if(t==='pipe'){
+      if(c.pipeSep  !== undefined) document.getElementById('fn-pipe-sep').value  = c.pipeSep;
+      if(c.pipeRef  !== undefined) document.getElementById('fn-pipe-ref').value  = c.pipeRef;
+      if(c.pipeQty  !== undefined) document.getElementById('fn-pipe-qty').value  = c.pipeQty;
+      if(c.pipeDesc !== undefined) document.getElementById('fn-pipe-desc').value = c.pipeDesc;
+    } else if(t==='kv'){
+      if(c.kvRef !== undefined) document.getElementById('fn-kv-ref').value = c.kvRef;
+      if(c.kvQty !== undefined) document.getElementById('fn-kv-qty').value = c.kvQty;
+      if(c.kvSep !== undefined) document.getElementById('fn-kv-sep').value = c.kvSep;
+      if(c.kvEq  !== undefined) document.getElementById('fn-kv-eq').value  = c.kvEq;
+    } else if(t==='posicional'){
+      if(c.posRefS !== undefined) document.getElementById('fn-pos-ref-s').value = c.posRefS;
+      if(c.posRefE !== undefined) document.getElementById('fn-pos-ref-e').value = c.posRefE;
+      if(c.posQtyS !== undefined) document.getElementById('fn-pos-qty-s').value = c.posQtyS;
+      if(c.posQtyE !== undefined) document.getElementById('fn-pos-qty-e').value = c.posQtyE;
+      if(c.posDiv  !== undefined) document.getElementById('fn-pos-div').value   = c.posDiv;
+    }
+  }
+  if(testRaw){
+    document.getElementById('fn-test-raw').value = testRaw;
+  }
+  // Rodar teste automático após aplicar
+  setTimeout(()=>fornTestParser(), 200);
+}
+
+/* ── Enviar mensagem ── */
+async function aiChatSend(){
+  if(_aiChatBusy) return;
+  const key = localStorage.getItem('rcb_ai_key');
+  if(!key){ toast('Configure a chave IA primeiro',true); return; }
+
+  const inp = document.getElementById('ai-chat-input');
+  const msg = inp.value.trim();
+  if(!msg) return;
+
+  inp.value=''; inp.style.height='auto';
+  _aiChatBusy = true;
+  document.getElementById('ai-chat-send-btn').disabled = true;
+
+  // Mostrar mensagem do usuário
+  aiChatAddMsg('user', h(msg));
+  _aiChatHistory.push({ role:'user', content: msg });
+
+  // Indicador
+  aiChatTyping();
+
+  // Estado atual do form
+  const { cfg, raw } = aiChatReadForm();
+
+  const systemPrompt = `Você é um assistente especialista em leitura de etiquetas logísticas/industriais integrado dentro de um sistema de cadastro de fornecedores.
+
+Seu objetivo é ajudar o usuário a configurar as regras de parsing de etiquetas para um fornecedor específico.
+
+CONTEXTO DO FORMULÁRIO ATUAL:
+- Fornecedor: ${cfg.nome || '(sem nome)'}
+- Tipo de parser: ${cfg.tipo}
+- Configuração atual: ${JSON.stringify(cfg)}
+- Exemplo de etiqueta no formulário: ${raw || '(vazio)'}
+
+REGRAS DE RESPOSTA — você DEVE retornar SEMPRE um JSON com exatamente esta estrutura:
+{
+  "mensagem": "Resposta em português explicando o que foi feito ou o que entendeu. Pode usar **negrito** e \`código\`.",
+  "atualizar": {
+    "tipo": "regex|pipe|kv|posicional|json|generico ou null para não mudar",
+    "config": { somente os campos que precisam ser alterados },
+    "testRaw": "novo exemplo para o campo de teste, ou null para não mudar"
+  }
+}
+
+Se o usuário só estiver fazendo uma pergunta e não for necessário alterar nada, coloque "atualizar": null.
+Se o usuário colar um exemplo de etiqueta, analise e sugira a configuração ideal.
+Se o usuário disser que algo está errado, corrija a regra correspondente.
+Sempre explique brevemente o que mudou e por quê.
+Retorne APENAS JSON válido, sem markdown, sem texto fora do JSON.`;
+
+  // Histórico completo para contexto
+  const messages = [
+    { role:'system', content: systemPrompt },
+    ..._aiChatHistory
+  ];
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer ' + key
+      },
+      body: JSON.stringify({
+        model:'gpt-4o',
+        max_tokens:1200,
+        temperature:0.15,
+        response_format:{ type:'json_object' },
+        messages
+      })
+    });
+
+    aiChatTypingRemove();
+
+    if(!resp.ok){
+      const err = await resp.json().catch(()=>({error:{message:'Erro desconhecido'}}));
+      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const raw2 = data.choices?.[0]?.message?.content || '{}';
+    let result;
+    try {
+      const clean = raw2.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+      result = JSON.parse(clean);
+    } catch(pe){
+      throw new Error('Resposta IA inválida. Tente novamente.');
+    }
+
+    // Exibir resposta
+    const aiMsgHtml = aiFormatText(result.mensagem || 'Entendido.');
+    aiChatAddMsg('ai', aiMsgHtml);
+    _aiChatHistory.push({ role:'assistant', content: raw2 });
+
+    // Aplicar atualizações se houver
+    if(result.atualizar){
+      aiChatApplyUpdate(result.atualizar);
+      aiChatAddMsg('sys', '✓ Regras atualizadas automaticamente');
+    }
+
+    // Limitar histórico a 12 turnos para não exceder tokens
+    if(_aiChatHistory.length > 24) _aiChatHistory = _aiChatHistory.slice(-24);
+
+  } catch(err){
+    aiChatTypingRemove();
+    aiChatAddMsg('err', '⚠ ' + h(err.message));
+  } finally {
+    _aiChatBusy = false;
+    document.getElementById('ai-chat-send-btn').disabled = false;
+  }
+}
+</script>
+</body>
+</html>
