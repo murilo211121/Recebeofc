@@ -1,0 +1,2320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>RecebeMais</title>
+<!-- jsQR: fallback leve -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<!-- ZXing: decoder robusto -->
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<!-- Google Cloud Vision é usado via fetch, sem biblioteca extra -->
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  CHAVE DA API GOOGLE CLOUD VISION — edite aqui          ║ -->
+<!-- ║  Obtenha em: console.cloud.google.com → Vision API      ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<script>
+  const EMBEDDED_VISION_KEY = '';  // ← Cole sua chave aqui entre as aspas
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="manifest" href="data:application/json,{%22name%22:%22RecebeMais%22,%22short_name%22:%22RecebeMais%22,%22display%22:%22standalone%22,%22background_color%22:%22%2307090f%22,%22theme_color%22:%22%2300d8ff%22,%22icons%22:[{%22src%22:%22data:image/svg+xml,%253Csvg%2520xmlns%3D'http%3A//www.w3.org/2000/svg'%2520viewBox%3D'0%25200%252032%252032'%253E%253Crect%2520width%3D'32'%2520height%3D'32'%2520fill%3D'%252307090f'/%253E%253Ctext%2520x%3D'4'%2520y%3D'24'%2520font-size%3D'22'%2520fill%3D'%252300d8ff'%253ER%252B%253C/text%253E%253C/svg%253E%22,%22sizes%22:%22any%22,%22type%22:%22image/svg+xml%22}]}">
+<meta name="theme-color" content="#00d8ff">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#07090f;
+  --s1:#0e1420;
+  --s2:#141d2e;
+  --s3:#1a2438;
+  --bd:#1e2e45;
+  --bd2:#243550;
+  --cy:#00d8ff;
+  --gr:#00f5a0;
+  --wa:#ff8c00;
+  --re:#ff3355;
+  --tx:#cce4ff;
+  --mu:#3d6080;
+  --mu2:#5a80a0;
+  --F:'IBM Plex Mono',monospace;
+  --R:'Rajdhani',sans-serif;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+body{color:var(--tx);font-family:var(--F);font-size:14px}
+
+/* ══ PAGES ══ */
+.pg{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);
+  transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .3s;overflow:hidden;will-change:transform}
+.pg.out{transform:translateX(100%);opacity:0;pointer-events:none}
+.pg.back{transform:translateX(-6%);opacity:0;pointer-events:none}
+
+/* ══ HEADER ══ */
+.hdr{background:var(--s1);border-bottom:1px solid var(--bd);padding:12px 16px;
+  display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:20}
+.back-btn{background:none;border:none;color:var(--cy);font-family:var(--R);font-weight:600;
+  font-size:.75rem;letter-spacing:1px;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:4px}
+.pg-ttl{font-family:var(--R);font-weight:700;font-size:1rem;color:var(--tx);
+  letter-spacing:2px;text-transform:uppercase}
+.hdr-side{min-width:60px;display:flex;justify-content:flex-end}
+
+/* ══ SCROLLABLE BODY ══ */
+.body{flex:1;overflow-y:auto;padding:12px;-webkit-overflow-scrolling:touch}
+.body::-webkit-scrollbar{width:2px}
+.body::-webkit-scrollbar-thumb{background:var(--bd)}
+
+/* ══ CARD ══ */
+.card{background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:10px}
+.card.hi{border-color:var(--bd2)}
+.ctit{font-family:var(--R);font-weight:700;font-size:.65rem;letter-spacing:2px;
+  text-transform:uppercase;color:var(--cy);margin-bottom:12px;display:flex;
+  align-items:center;justify-content:space-between}
+
+/* ══ FORMS ══ */
+label{display:block;font-size:.56rem;color:var(--mu2);letter-spacing:1px;
+  text-transform:uppercase;margin-bottom:3px}
+input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:7px;
+  color:var(--tx);font-family:var(--F);font-size:.85rem;padding:10px 12px;
+  outline:none;transition:border-color .2s;margin-bottom:9px;-webkit-appearance:none}
+input:focus,select:focus,textarea:focus{border-color:var(--cy)}
+textarea{resize:none;min-height:60px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+
+/* ══ BUTTONS ══ */
+.btn{width:100%;padding:12px;border-radius:8px;border:none;font-family:var(--R);
+  font-weight:700;font-size:.88rem;letter-spacing:2px;text-transform:uppercase;
+  cursor:pointer;transition:opacity .15s,transform .1s;margin-bottom:8px;display:block}
+.btn:last-child{margin-bottom:0}
+.btn:active{transform:scale(.97);opacity:.85}
+.btn-cy{background:var(--cy);color:#000}
+.btn-gr{background:var(--gr);color:#000}
+.btn-re{background:var(--re);color:#fff}
+.btn-wa{background:var(--wa);color:#fff}
+.btn-x{background:transparent;border:1px solid var(--bd);color:var(--mu2)}
+.btn-x:active{border-color:var(--cy);color:var(--cy)}
+.row{display:flex;gap:8px}.row .btn{margin-bottom:0;flex:1}
+
+/* ══ DASHBOARD ══ */
+.dash-hero{padding:20px 16px 10px;text-align:center}
+.dash-logo{font-family:var(--R);font-weight:700;font-size:2.2rem;
+  color:var(--cy);letter-spacing:5px;text-transform:uppercase;line-height:1}
+.dash-logo span{color:var(--gr)}
+.dash-tagline{font-size:.55rem;color:var(--mu);letter-spacing:3px;margin-top:4px;text-transform:uppercase}
+.dash-time{font-family:var(--R);font-size:1.4rem;font-weight:600;
+  color:var(--tx);letter-spacing:3px;margin-top:8px}
+
+/* Sessão ativa pill */
+.sess-pill{margin:0 12px 10px;background:var(--s1);border:1px solid var(--bd);
+  border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:10px;cursor:pointer}
+.sess-pill:active{background:var(--s2)}
+.sdot{width:9px;height:9px;border-radius:50%;background:var(--mu);flex-shrink:0;
+  transition:background .3s,box-shadow .3s}
+.sdot.live{background:var(--gr);box-shadow:0 0 8px var(--gr)}
+.sinfo{flex:1;min-width:0}
+.sname{font-family:var(--R);font-weight:700;font-size:.9rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sdet{font-size:.54rem;color:var(--mu2);margin-top:2px;letter-spacing:.3px}
+
+/* Contadores dash */
+.dash-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;
+  padding:0 12px 10px}
+.dstat{background:var(--s1);border:1px solid var(--bd);border-radius:9px;
+  padding:10px 6px;text-align:center}
+.dstat .n{font-family:var(--R);font-size:1.6rem;font-weight:700;color:var(--cy);line-height:1}
+.dstat .l{font-size:.48rem;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:3px}
+.dstat.g .n{color:var(--gr)}
+.dstat.o .n{color:var(--wa)}
+
+/* Grid botões dash */
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 12px 16px}
+.dbtn{background:var(--s1);border:1px solid var(--bd);border-radius:13px;
+  padding:16px 10px 14px;display:flex;flex-direction:column;align-items:center;
+  gap:7px;cursor:pointer;transition:border-color .2s,background .15s;text-align:center}
+.dbtn:active{background:var(--s2);transform:scale(.97)}
+.dbtn.cy{border-color:rgba(0,216,255,.35);background:rgba(0,216,255,.05)}
+.dbtn.gr{border-color:rgba(0,245,160,.3);background:rgba(0,245,160,.04)}
+.dbtn.wa{border-color:rgba(255,140,0,.3);background:rgba(255,140,0,.04)}
+.dbtn.re{border-color:rgba(255,51,85,.25);background:rgba(255,51,85,.04)}
+.dbtn-ico{font-size:1.5rem;line-height:1;opacity:.8}
+.dbtn-lbl{font-family:var(--R);font-weight:700;font-size:.82rem;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--tx)}
+.dbtn-sub{font-size:.52rem;color:var(--mu2);letter-spacing:.3px}
+.dbtn-badge{background:var(--cy);color:#000;font-size:.5rem;font-weight:700;
+  border-radius:8px;padding:2px 6px;font-family:var(--R);letter-spacing:1px}
+
+/* ══ CÂMERA ══ */
+#cam-wrap{position:relative;width:100%;background:#000;border-radius:10px;
+  overflow:hidden;margin-bottom:8px;aspect-ratio:4/3}
+#vid{width:100%;height:100%;object-fit:cover;display:block}
+.cam-ov{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;pointer-events:none}
+.sf{width:60%;aspect-ratio:1;border-radius:8px;position:relative;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.55)}
+.sf::before{content:'';position:absolute;inset:-2px;border:2px solid var(--cy);border-radius:8px}
+.sl{position:absolute;left:4px;right:4px;height:2px;top:4px;
+  background:linear-gradient(90deg,transparent,var(--cy),transparent);
+  animation:sw 1.8s ease-in-out infinite}
+@keyframes sw{0%{top:4px;opacity:1}88%{top:calc(100% - 6px);opacity:1}100%{top:calc(100% - 6px);opacity:0}}
+.sc{position:absolute;width:16px;height:16px;border-color:var(--gr);border-style:solid}
+.sc.tl{top:-2px;left:-2px;border-width:3px 0 0 3px;border-radius:4px 0 0 0}
+.sc.tr{top:-2px;right:-2px;border-width:3px 3px 0 0;border-radius:0 4px 0 0}
+.sc.bl{bottom:-2px;left:-2px;border-width:0 0 3px 3px;border-radius:0 0 0 4px}
+.sc.br{bottom:-2px;right:-2px;border-width:0 3px 3px 0;border-radius:0 0 4px 0}
+#cam-cnt{position:absolute;bottom:7px;right:10px;font-size:.52rem;
+  color:rgba(0,216,255,.6);pointer-events:none;letter-spacing:1px}
+.cam-ph{position:absolute;inset:0;background:var(--s2);display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  transition:opacity .2s}
+.cam-ph.off{opacity:0;pointer-events:none}
+.cph-i{font-size:2.8rem;opacity:.12;line-height:1}
+.cph-t{font-size:.58rem;color:var(--mu);letter-spacing:.5px}
+#cam-st{font-size:.64rem;text-align:center;padding:4px 0;min-height:22px;letter-spacing:.3px}
+#cam-st.ok{color:var(--gr)}
+#cam-st.err{color:var(--re)}
+#cam-st.wa{color:var(--wa)}
+
+/* ══ QR RESULT ══ */
+.qr-box{display:none;background:var(--s2);border:1px solid var(--gr);
+  border-radius:10px;padding:12px;margin-top:6px;animation:fadeUp .2s ease}
+.qr-box.on{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.rr{display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;border-bottom:1px solid var(--bd)}
+.rr:last-of-type{border:none}
+.rk{font-size:.55rem;color:var(--mu2);letter-spacing:1px;text-transform:uppercase}
+.rv{font-weight:500;font-size:.75rem}
+.rv.ref{color:var(--cy);font-family:var(--R);font-weight:700;font-size:1rem}
+.rv.qty{color:var(--gr);font-family:var(--R);font-weight:700;font-size:1.3rem}
+.rv.tot{color:var(--wa);font-family:var(--R);font-weight:700;font-size:1.1rem}
+.acc-bar{display:none;background:rgba(255,140,0,.07);border:1px solid rgba(255,140,0,.3);
+  border-radius:6px;padding:7px 10px;font-size:.62rem;color:var(--wa);
+  line-height:1.7;margin-bottom:8px}
+.acc-bar.on{display:block}
+
+/* ══ ITEM LIST ══ */
+.ilist{display:flex;flex-direction:column;gap:7px}
+.ic{background:var(--s1);border:1px solid var(--bd);border-radius:10px;
+  padding:11px 13px;display:flex;align-items:center;gap:10px;
+  animation:fadeUp .18s ease;cursor:pointer;transition:border-color .2s}
+.ic:active{background:var(--s2)}
+.ic.multi{border-color:rgba(0,245,160,.25)}
+.ic.editing{border-color:var(--cy);background:rgba(0,216,255,.04)}
+.iref{font-family:var(--R);font-size:.98rem;font-weight:700}
+.iqty{font-family:var(--R);font-size:1.3rem;font-weight:700;color:var(--gr);
+  min-width:52px;text-align:right}
+.itag{font-size:.5rem;color:var(--wa);background:rgba(255,140,0,.1);
+  border-radius:3px;padding:1px 5px;display:inline-block;margin-top:2px;letter-spacing:.5px}
+.imeta{font-size:.55rem;color:var(--mu2);margin-top:2px}
+.idel{background:none;border:none;color:var(--re);cursor:pointer;
+  font-size:.8rem;padding:5px 4px;opacity:.6;flex-shrink:0}
+.idel:active{opacity:1}
+
+/* Edit inline */
+.edit-row{display:none;border-top:1px solid var(--bd);margin-top:8px;padding-top:8px}
+.edit-row.on{display:flex;gap:6px;align-items:center}
+.edit-row input{margin-bottom:0;padding:7px 10px;font-size:.82rem;flex:1}
+.edit-row .btn{padding:8px 12px;font-size:.72rem;width:auto;margin-bottom:0;letter-spacing:1px}
+
+/* ══ STATS ══ */
+.stats{display:flex;gap:7px;margin-bottom:10px}
+.stat{flex:1;background:var(--s1);border:1px solid var(--bd);border-radius:9px;
+  padding:9px;text-align:center}
+.stat .n{font-family:var(--R);font-size:1.7rem;font-weight:700;color:var(--cy);line-height:1}
+.stat .l{font-size:.5rem;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+.stat.g .n{color:var(--gr)}
+.stat.o .n{color:var(--wa)}
+
+/* ══ HISTÓRICO ══ */
+.hcard{background:var(--s1);border:1px solid var(--bd);border-radius:10px;
+  padding:13px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
+.hcard:active{background:var(--s2)}
+.hcard-head{display:flex;align-items:center;justify-content:space-between}
+.hcard-forn{font-family:var(--R);font-weight:700;font-size:.95rem}
+.hcard-date{font-size:.55rem;color:var(--mu2)}
+.hcard-stats{display:flex;gap:10px;margin-top:6px}
+.hstat{font-size:.6rem;color:var(--mu2)}
+.hstat b{color:var(--cy);font-family:var(--R);font-size:.8rem}
+.hdel{background:none;border:none;color:var(--re);cursor:pointer;
+  font-size:.75rem;padding:3px;opacity:.5}
+.hdel:active{opacity:1}
+
+/* ══ EXPORT BOX ══ */
+.exbox{background:var(--bg);border:1px solid var(--bd);border-radius:6px;
+  padding:10px;font-size:.6rem;color:var(--mu2);white-space:pre;
+  overflow-x:auto;max-height:180px;margin-bottom:8px;line-height:1.9}
+
+/* ══ INFO BOX ══ */
+.ibox{background:rgba(0,216,255,.04);border:1px solid rgba(0,216,255,.15);
+  border-radius:7px;padding:9px 11px;font-size:.6rem;color:var(--mu2);
+  line-height:1.9;margin-bottom:8px}
+.ibox b{color:var(--cy)}
+.ibox code{color:var(--tx);background:rgba(255,255,255,.06);
+  padding:1px 4px;border-radius:3px;font-size:.58rem}
+
+/* ══ EMPTY ══ */
+.empty{text-align:center;padding:36px 20px;color:var(--mu)}
+.ei{letter-spacing:5px;opacity:.15;margin-bottom:10px;font-size:.8rem}
+.et{font-size:.65rem;letter-spacing:1px}
+
+/* ══ WARN / ALERT ══ */
+.wbox{display:none;padding:9px 11px;background:rgba(255,51,85,.07);
+  border:1px solid rgba(255,51,85,.3);border-radius:7px;
+  font-size:.63rem;color:var(--re);margin-bottom:9px;line-height:1.6}
+.wbox.on{display:block}
+.abox{padding:9px 11px;background:rgba(0,245,160,.05);
+  border:1px solid rgba(0,245,160,.2);border-radius:7px;
+  font-size:.63rem;color:var(--gr);margin-bottom:9px;line-height:1.6}
+
+/* ══ SEPARADOR ══ */
+.sep{height:1px;background:var(--bd);margin:10px 0}
+
+/* ══ TOAST ══ */
+#toast{position:fixed;bottom:20px;left:50%;
+  transform:translateX(-50%) translateY(60px);
+  background:var(--s2);border:1px solid var(--gr);color:var(--gr);
+  padding:9px 20px;border-radius:20px;font-size:.68rem;letter-spacing:.5px;
+  z-index:9999;transition:transform .25s;white-space:nowrap;max-width:88vw;
+  overflow:hidden;text-overflow:ellipsis}
+#toast.on{transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:var(--re);color:var(--re)}
+#toast.wa{border-color:var(--wa);color:var(--wa)}
+
+/* ══ FLASH ══ */
+#flash{position:fixed;inset:0;background:rgba(0,245,160,.08);
+  pointer-events:none;z-index:9990;opacity:0;transition:opacity .12s}
+#flash.on{opacity:1}
+
+/* ══ MODAL ══ */
+.mbg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);
+  z-index:800;align-items:center;justify-content:center;padding:16px}
+.mbg.on{display:flex}
+.md{background:var(--s1);border:1px solid var(--bd);border-radius:13px;
+  padding:20px;width:100%;max-width:360px}
+.md h3{font-family:var(--R);font-weight:700;font-size:.88rem;color:var(--cy);
+  letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+.md p{font-size:.7rem;color:var(--mu2);line-height:1.7}
+.mrow{display:flex;gap:8px;margin-top:14px}
+.mrow .btn{margin-bottom:0;flex:1}
+
+/* MODAL EDIT */
+#mdl-edit .md{max-width:380px}
+#mdl-edit label{margin-top:4px}
+#mdl-edit input{margin-bottom:6px}
+
+/* Hist item edit (editable rows) */
+.hic{background:var(--s1);border:1px solid var(--bd);border-radius:10px;
+  padding:11px 13px;display:flex;align-items:center;gap:10px;
+  animation:fadeUp .18s ease;cursor:pointer;transition:border-color .2s}
+.hic:active{background:var(--s2)}
+.hic.multi{border-color:rgba(0,245,160,.25)}
+.hic-edit{display:none;border-top:1px solid var(--bd);margin-top:8px;padding-top:8px}
+.hic-edit.on{display:flex;gap:6px;align-items:center}
+.hic-edit input{margin-bottom:0;padding:7px 10px;font-size:.82rem;flex:1}
+.hic-edit .btn{padding:8px 12px;font-size:.72rem;width:auto;margin-bottom:0;letter-spacing:1px}
+
+/* QR manual input */
+.qr-manual{background:rgba(0,216,255,.04);border:1px solid rgba(0,216,255,.15);
+  border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.qr-manual .ctit{margin-bottom:8px;font-size:.6rem}
+.qr-manual input{margin-bottom:6px}
+.qr-manual .btn{padding:9px;font-size:.75rem}
+
+/* Engine badge */
+#engine-badge{font-size:.46rem;color:var(--mu);letter-spacing:.8px;
+  text-align:center;padding:2px 0 4px;opacity:.6}
+
+/* Scanning pulse quando ativo */
+@keyframes scanPulse{0%,100%{opacity:.5}50%{opacity:1}}
+#cam-wrap.scanning .sf::before{animation:scanPulse 1s ease-in-out infinite}
+
+/* OCR overlay */
+#ocr-overlay{position:absolute;inset:0;background:rgba(7,9,15,.82);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  border-radius:10px;z-index:10}
+#ocr-overlay.on{display:flex}
+.ocr-spin{width:32px;height:32px;border:3px solid var(--bd);
+  border-top-color:var(--cy);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ocr-prog{font-size:.6rem;color:var(--cy);letter-spacing:1px}
+.ocr-hint{font-size:.52rem;color:var(--mu2);letter-spacing:.3px;text-align:center;padding:0 20px}
+
+/* OCR mode toggle */
+.mode-toggle{display:flex;gap:0;margin-bottom:8px;border:1px solid var(--bd);border-radius:7px;overflow:hidden}
+.mode-btn{flex:1;padding:8px 6px;background:transparent;border:none;
+  font-family:var(--R);font-weight:700;font-size:.7rem;letter-spacing:1px;
+  text-transform:uppercase;color:var(--mu2);cursor:pointer;transition:all .15s}
+.mode-btn.active{background:var(--s2);color:var(--cy)}
+.mode-btn:active{opacity:.7}
+
+/* OCR SPI result preview */
+#ocr-raw-box{display:none;background:var(--bg);border:1px solid var(--bd);
+  border-radius:6px;padding:8px 10px;font-size:.56rem;color:var(--mu2);
+  white-space:pre-wrap;word-break:break-all;max-height:70px;overflow-y:auto;
+  margin-bottom:6px;line-height:1.7}
+#ocr-raw-box.on{display:block}
+
+/* ══ OCR COUNTDOWN BAR ══ */
+#ocr-countdown{height:2px;background:var(--bd);border-radius:1px;margin-bottom:4px;overflow:hidden;display:none}
+#ocr-countdown.on{display:block}
+#ocr-countdown-fill{height:100%;background:var(--cy);width:100%;
+  transition:width 1s linear;border-radius:1px}
+
+/* ══ SORT CONTROL ══ */
+.sort-ctrl{display:flex;gap:0;margin-bottom:8px;border:1px solid var(--bd);border-radius:7px;overflow:hidden}
+.sort-btn{flex:1;padding:6px 4px;background:transparent;border:none;
+  font-family:var(--R);font-weight:700;font-size:.62rem;letter-spacing:.8px;
+  text-transform:uppercase;color:var(--mu2);cursor:pointer;transition:all .15s}
+.sort-btn.active{background:var(--s2);color:var(--cy)}
+.sort-btn:active{opacity:.7}
+
+/* ══ HIST SEARCH ══ */
+#hist-search{margin-bottom:8px}
+
+/* ══ HIST FILTER TABS ══ */
+.hist-filter{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px}
+.hist-filter::-webkit-scrollbar{display:none}
+.hftab{background:var(--s1);border:1px solid var(--bd);border-radius:6px;
+  padding:5px 12px;font-family:var(--R);font-weight:700;font-size:.6rem;
+  letter-spacing:1px;text-transform:uppercase;color:var(--mu2);
+  cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s}
+.hftab.active{background:rgba(0,216,255,.1);border-color:var(--cy);color:var(--cy)}
+
+/* ══ EXPORT SESSÃO ATIVA ══ */
+#card-export-sess{display:none;margin-top:0}
+
+/* ══ STORAGE WARNING ══ */
+#storage-warn{display:none;background:rgba(255,140,0,.08);border:1px solid rgba(255,140,0,.3);
+  border-radius:7px;padding:8px 11px;font-size:.6rem;color:var(--wa);
+  margin:0 12px 8px;line-height:1.6}
+#storage-warn.on{display:block}
+
+/* ══ API KEY EMBEDED STATUS ══ */
+.key-src{font-size:.5rem;padding:2px 7px;border-radius:4px;letter-spacing:1px;font-family:var(--R)}
+.key-src.emb{background:rgba(0,245,160,.12);color:var(--gr)}
+.key-src.ls {background:rgba(0,216,255,.1); color:var(--cy)}
+.key-src.none{background:rgba(255,51,85,.15);color:var(--re)}
+
+/* ══ DUPLICATE ALERT ══ */
+.dup-flash{animation:dupPulse .35s ease}
+@keyframes dupPulse{0%{background:rgba(255,140,0,.2)}100%{background:transparent}}
+</style>
+</head>
+<body>
+<div id="flash"></div>
+<div id="toast"></div>
+<div id="storage-warn">⚠ Armazenamento local quase cheio. Exporte e exclua contagens antigas para continuar salvando.</div>
+
+<!-- MODAL CONFIRMAR -->
+<div class="mbg" id="mdl-conf">
+  <div class="md">
+    <h3 id="mc-title"></h3>
+    <p id="mc-msg"></p>
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="mcClose()">Cancelar</button>
+      <button class="btn btn-re" id="mc-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR ITEM -->
+<div class="mbg" id="mdl-edit">
+  <div class="md">
+    <h3>Editar Item</h3>
+    <label>Referência</label>
+    <input id="ed-ref" type="text" autocomplete="off">
+    <label>Quantidade Total</label>
+    <input id="ed-qty" type="number" min="1">
+    <label>Fornecedor</label>
+    <input id="ed-forn" type="text">
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="editClose()">Cancelar</button>
+      <button class="btn btn-cy" onclick="editSave()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR ITEM HISTÓRICO -->
+<div class="mbg" id="mdl-hist-edit">
+  <div class="md">
+    <h3>Editar Item do Histórico</h3>
+    <label>Referência</label>
+    <input id="hed-ref" type="text" autocomplete="off">
+    <label>Quantidade Total</label>
+    <input id="hed-qty" type="number" min="1">
+    <label>Fornecedor</label>
+    <input id="hed-forn" type="text">
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="histEditClose()">Cancelar</button>
+      <button class="btn btn-cy" onclick="histEditSave()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADICIONAR ITEM HISTÓRICO -->
+<div class="mbg" id="mdl-hist-add">
+  <div class="md">
+    <h3>Adicionar Item ao Histórico</h3>
+    <label>Referência</label>
+    <input id="hadd-ref" type="text" autocomplete="off" placeholder="Ex: 4901974V000">
+    <label>Quantidade</label>
+    <input id="hadd-qty" type="number" min="1" placeholder="0">
+    <label>Fornecedor</label>
+    <input id="hadd-forn" type="text" placeholder="Opcional">
+    <div class="mrow">
+      <button class="btn btn-x"  onclick="histAddClose()">Cancelar</button>
+      <button class="btn btn-gr" onclick="histAddSave()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: DASHBOARD
+═══════════════════════════════════ -->
+<div class="pg" id="pg-dash">
+  <div class="body" style="padding:0;overflow-y:auto">
+
+    <div class="dash-hero">
+      <div class="dash-logo">Recebe<span>+</span></div>
+      <div class="dash-tagline">Controle de Recebimento</div>
+      <div class="dash-time" id="dash-clk">--:--:--</div>
+    </div>
+
+    <!-- Sessão ativa -->
+    <div class="sess-pill" id="sess-pill" onclick="navTo('pg-scan')">
+      <div class="sdot" id="sdot"></div>
+      <div class="sinfo">
+        <div class="sname" id="sname">Nenhuma sessão ativa</div>
+        <div class="sdet"  id="sdet">Toque em Iniciar Contagem para começar</div>
+      </div>
+      <div style="font-size:.65rem;color:var(--cy);font-family:var(--R);font-weight:600">&#8250;</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="dash-stats">
+      <div class="dstat">   <div class="n" id="d-refs">0</div><div class="l">Refs</div></div>
+      <div class="dstat g"> <div class="n" id="d-cxas">0</div><div class="l">Peças</div></div>
+      <div class="dstat o"> <div class="n" id="d-hist">0</div><div class="l">Contagens</div></div>
+    </div>
+
+    <!-- Botões -->
+    <div class="dash-grid">
+      <div class="dbtn cy" onclick="navTo('pg-scan')">
+        <div class="dbtn-ico">&#9654;</div>
+        <div class="dbtn-lbl">Iniciar Contagem</div>
+        <div class="dbtn-sub">Escanear etiquetas</div>
+      </div>
+      <div class="dbtn gr" onclick="navTo('pg-lista')">
+        <div class="dbtn-ico">&#9783;</div>
+        <div class="dbtn-lbl">Contagens</div>
+        <div class="dbtn-sub" id="db-lista-sub">Sessão atual</div>
+      </div>
+      <div class="dbtn wa" onclick="navTo('pg-hist')">
+        <div class="dbtn-ico">&#9636;</div>
+        <div class="dbtn-lbl">Histórico</div>
+        <div class="dbtn-sub" id="db-hist-sub">Contagens salvas</div>
+      </div>
+      <div class="dbtn re" onclick="navTo('pg-forn')">
+        <div class="dbtn-ico">&#9776;</div>
+        <div class="dbtn-lbl">Fornecedores</div>
+        <div class="dbtn-sub">Padrões e formatos</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: SCANNER / CONTAGEM
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-scan">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Contagem</div>
+    <div class="hdr-side">
+      <div id="lp-badge" style="display:none;font-size:.5rem;background:rgba(0,216,255,.1);
+        border:1px solid rgba(0,216,255,.3);color:var(--cy);padding:2px 7px;border-radius:3px;
+        letter-spacing:1.5px;font-family:var(--R);font-weight:700">LINKPLAS</div>
+      <div id="spi-badge" style="display:none;font-size:.5rem;background:rgba(255,140,0,.1);
+        border:1px solid rgba(255,140,0,.4);color:var(--wa);padding:2px 7px;border-radius:3px;
+        letter-spacing:1.5px;font-family:var(--R);font-weight:700">SPI · OCR</div>
+    </div>
+  </div>
+  <div class="body" id="scan-body">
+
+    <!-- Iniciar sessão -->
+    <div class="card" id="card-sess">
+      <div class="ctit">Nova Sessão</div>
+      <label>Fornecedor</label>
+      <input id="inp-forn" type="text" placeholder="Ex: LINKPLAS" autocomplete="off"
+        autocorrect="off" autocapitalize="characters">
+      <label>NF / Pedido (opcional)</label>
+      <input id="inp-nf" type="text" placeholder="Ex: NF-001234">
+      <button class="btn btn-cy" onclick="sessStart()">Iniciar Sessão</button>
+      <button class="btn btn-x"  onclick="navBack()">Cancelar</button>
+    </div>
+
+    <!-- Câmera -->
+    <div class="card" id="card-cam" style="display:none">
+      <div class="ctit">
+        <span id="cam-mode-label">Leitura QR</span>
+        <span id="sess-tag" style="color:var(--gr);font-size:.7rem"></span>
+      </div>
+
+      <!-- Toggle QR / OCR (aparece só pra SPI) -->
+      <div class="mode-toggle" id="mode-toggle" style="display:none">
+        <button class="mode-btn active" id="btn-mode-qr"  onclick="setMode('qr')">&#9654; QR Code</button>
+        <button class="mode-btn"        id="btn-mode-ocr" onclick="setMode('ocr')">&#9632; OCR Etiqueta</button>
+      </div>
+
+      <div id="cam-wrap">
+        <video id="vid" autoplay muted playsinline webkit-playsinline></video>
+        <div class="cam-ov">
+          <div class="sf">
+            <div class="sl"></div>
+            <div class="sc tl"></div><div class="sc tr"></div>
+            <div class="sc bl"></div><div class="sc br"></div>
+          </div>
+        </div>
+        <div id="cam-cnt"></div>
+        <div class="cam-ph" id="cam-ph">
+          <div class="cph-i">&#9632;</div>
+          <div class="cph-t">Toque em Abrir Câmera</div>
+        </div>
+        <!-- OCR processing overlay -->
+        <div id="ocr-overlay">
+          <div class="ocr-spin"></div>
+          <div class="ocr-prog" id="ocr-prog">Processando OCR...</div>
+          <div class="ocr-hint">Mantenha a etiqueta centralizada e firme</div>
+        </div>
+      </div>
+
+      <div id="cam-st"></div>
+      <!-- OCR countdown bar -->
+      <div id="ocr-countdown"><div id="ocr-countdown-fill"></div></div>
+      <div id="engine-badge"></div>
+
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn btn-cy" id="btn-open"  onclick="camStart()">Abrir Câmera</button>
+        <button class="btn btn-x"  id="btn-close" onclick="camStop()" style="display:none;max-width:90px">Fechar</button>
+        <button class="btn btn-x"  id="btn-torch" onclick="torchTog()" style="display:none;max-width:70px;font-size:.7rem">Luz</button>
+      </div>
+
+      <!-- Botão captura OCR (força leitura manual, modo OCR) -->
+      <div id="ocr-capture-row" style="display:none;margin-bottom:8px">
+        <button class="btn btn-wa" onclick="ocrCapture(false)" style="letter-spacing:1.5px">
+          📷 Forçar Leitura Agora
+        </button>
+        <div id="ocr-raw-box"></div>
+      </div>
+
+      <!-- QR Manual Input fallback -->
+      <div class="qr-manual">
+        <div class="ctit">&#9998; Digitar código QR manualmente</div>
+        <input id="qr-text-input" type="text" placeholder="Cole ou digite o conteúdo do QR Code..."
+          autocomplete="off" autocorrect="off" style="margin-bottom:6px">
+        <button class="btn btn-wa" onclick="processManualQR()" style="margin-bottom:0;padding:9px;font-size:.75rem">Processar Código</button>
+      </div>
+
+      <!-- QR Result -->
+      <div class="qr-box" id="qr-box">
+        <div class="acc-bar" id="acc-bar"></div>
+        <div class="rr"><span class="rk">Referência</span>   <span class="rv ref" id="r-ref">—</span></div>
+        <div class="rr">
+          <span class="rk">Peças / volume</span>
+          <span class="rv qty" id="r-qty">—</span>
+        </div>
+        <!-- Volumes input -->
+        <div class="rr" style="gap:10px;align-items:center">
+          <span class="rk" style="white-space:nowrap">Nº de volumes</span>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+            <button onclick="changeVols(-1)" style="background:var(--s3);border:1px solid var(--bd);
+              color:var(--tx);border-radius:6px;width:30px;height:30px;font-size:1.1rem;
+              cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">−</button>
+            <input id="r-vols" type="number" min="1" value="1"
+              oninput="recalcTotal()"
+              style="width:54px;text-align:center;margin:0;padding:5px 4px;font-size:1rem;
+                font-family:var(--R);font-weight:700;color:var(--cy)">
+            <button onclick="changeVols(1)"  style="background:var(--s3);border:1px solid var(--bd);
+              color:var(--tx);border-radius:6px;width:30px;height:30px;font-size:1.1rem;
+              cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
+          </div>
+        </div>
+        <!-- Total calculado -->
+        <div class="rr" style="background:rgba(0,245,160,.05);border-radius:6px;padding:6px 8px;margin-top:4px;border:none">
+          <span class="rk" style="color:var(--gr)">Total (peças × volumes)</span>
+          <span class="rv" id="r-total" style="color:var(--gr);font-family:var(--R);font-weight:700;font-size:1.4rem">—</span>
+        </div>
+        <div class="rr" id="r-acc-row" style="display:none">
+          <span class="rk">Acumulado anterior</span><span class="rv tot" id="r-acc">—</span>
+        </div>
+        <div class="rr"><span class="rk">Fornecedor</span>   <span class="rv" id="r-forn">—</span></div>
+        <div class="rr" style="border:none">
+          <span class="rk">Dado bruto</span>
+          <span class="rv" id="r-raw" style="font-size:.53rem;color:var(--mu2);
+            text-align:right;max-width:58%;word-break:break-all">—</span>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-gr" onclick="itemConfirm()">Confirmar</button>
+          <button class="btn btn-x"  onclick="itemCancel()">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Entrada manual -->
+    <div class="card" id="card-manual" style="display:none">
+      <div class="ctit">Entrada Manual</div>
+      <label>Referência</label>
+      <input id="m-ref" type="text" placeholder="Ex: 4901974V000" autocomplete="off">
+      <div class="g2">
+        <div><label>Quantidade</label><input id="m-qty" type="number" placeholder="0" min="1"></div>
+        <div><label>Fornecedor</label><input id="m-forn" type="text" placeholder="Auto"></div>
+      </div>
+      <button class="btn btn-cy" onclick="manualAdd()">Adicionar Item</button>
+    </div>
+
+    <!-- Ações sessão -->
+    <div id="card-acoes" style="display:none">
+      <div class="sep"></div>
+      <button class="btn btn-gr" onclick="sessSave()">Finalizar e Salvar Contagem</button>
+      <button class="btn btn-cy" style="font-size:.75rem;padding:9px" onclick="exportSessAtiva()">Exportar Sessão Atual (CSV)</button>
+      <button class="btn btn-re" style="font-size:.75rem;padding:9px"
+        onclick="mc('Encerrar Sessão','A sessão será encerrada sem salvar. Os dados atuais serão perdidos.',sessCancel)">
+        Descartar Sessão
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: LISTA (sessão atual)
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-lista">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Contagens</div>
+    <div class="hdr-side">
+      <button style="background:none;border:none;color:var(--re);font-family:var(--R);
+        font-size:.65rem;letter-spacing:1px;cursor:pointer"
+        onclick="mc('Limpar Lista','Todos os itens da sessão atual serão removidos.',listaClear)">
+        Limpar
+      </button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="stats">
+      <div class="stat">  <div class="n" id="ls-scans">0</div><div class="l">Scans</div></div>
+      <div class="stat g"><div class="n" id="ls-cxas">0</div> <div class="l">Peças</div></div>
+      <div class="stat o"><div class="n" id="ls-refs">0</div> <div class="l">Refs</div></div>
+    </div>
+    <input id="search" type="text" placeholder="Buscar referência..."
+      oninput="renderList()" style="margin-bottom:8px">
+    <div class="sort-ctrl">
+      <button class="sort-btn active" id="sort-az"  onclick="setSort('az')">A→Z</button>
+      <button class="sort-btn"        id="sort-qty" onclick="setSort('qty')">Maior Qtd</button>
+      <button class="sort-btn"        id="sort-rec" onclick="setSort('rec')">Recentes</button>
+    </div>
+    <div class="ilist" id="ilist">
+      <div class="empty"><div class="ei">· · ·</div><div class="et">Nenhum item registrado</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: HISTÓRICO
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-hist">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Histórico</div>
+    <div class="hdr-side"></div>
+  </div>
+  <div class="body">
+    <input id="hist-search" type="text" placeholder="Buscar fornecedor ou NF..."
+      oninput="renderHist()" style="margin-bottom:8px">
+    <div class="hist-filter" id="hist-filter">
+      <div class="hftab active" onclick="setHistFilter('todos')">Todos</div>
+    </div>
+    <div class="ilist" id="hist-list">
+      <div class="empty"><div class="ei">· · ·</div><div class="et">Nenhuma contagem salva</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: DETALHE HISTÓRICO
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-hist-det">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl" id="hdet-title">Contagem</div>
+    <div class="hdr-side">
+      <button id="btn-hdet-edit" style="background:none;border:none;color:var(--cy);font-family:var(--R);
+        font-size:.65rem;letter-spacing:1px;cursor:pointer;display:none"
+        onclick="toggleHistEdit()">Editar</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="stats">
+      <div class="stat">  <div class="n" id="hd-scans">0</div><div class="l">Scans</div></div>
+      <div class="stat g"><div class="n" id="hd-cxas">0</div> <div class="l">Peças</div></div>
+      <div class="stat o"><div class="n" id="hd-refs">0</div> <div class="l">Refs</div></div>
+    </div>
+    <div id="hdet-info" style="font-size:.62rem;color:var(--mu2);margin-bottom:10px;line-height:1.8"></div>
+    <!-- Edit toolbar (hidden by default) -->
+    <div id="hdet-edit-bar" style="display:none;margin-bottom:10px">
+      <div class="row">
+        <button class="btn btn-cy" style="font-size:.72rem;padding:9px;margin-bottom:0"
+          onclick="openHistAddItem()">+ Adicionar Item</button>
+        <button class="btn btn-x"  style="font-size:.72rem;padding:9px;margin-bottom:0;color:var(--re)"
+          onclick="toggleHistEdit()">Concluir Edição</button>
+      </div>
+    </div>
+    <div class="ilist" id="hdet-list"></div>
+    <div style="margin-top:10px">
+      <div class="card" id="hdet-exp" style="display:none">
+        <div class="ctit">Exportar</div>
+        <div class="exbox" id="hdet-exbox"></div>
+        <button class="btn btn-gr" onclick="exportHistCSV()">Baixar CSV</button>
+        <button class="btn btn-x"  onclick="copyHist()">Copiar Texto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     PG: FORNECEDORES
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-forn">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Fornecedores</div>
+    <div class="hdr-side"></div>
+  </div>
+  <div class="body">
+
+    <!-- Google Vision API Key -->
+    <div class="card hi">
+      <div class="ctit">&#9670; Google Cloud Vision · OCR SPI
+        <span id="vision-status" class="key-src none">SEM CHAVE</span>
+      </div>
+      <div class="abox" id="emb-key-info" style="display:none">
+        ✓ Chave embutida no código está ativa. Para trocar, edite a constante <code>EMBEDDED_VISION_KEY</code> no início do HTML.
+      </div>
+      <div class="ibox" style="margin-bottom:10px">
+        Usado para ler etiquetas SPI via OCR preciso.<br>
+        <b>Free tier:</b> 1.000 leituras/mês gratuitas.<br>
+        <b>Como obter:</b> <code>console.cloud.google.com</code> → Vision API → Credenciais → API Key<br>
+        <b>Prioridade:</b> chave embutida no HTML → chave salva aqui → sem OCR
+      </div>
+      <label>API Key do Google Cloud Vision (salva localmente)</label>
+      <input id="vision-key-input" type="password" placeholder="AIzaSy..."
+        autocomplete="off" autocorrect="off" style="margin-bottom:6px;font-family:monospace;font-size:.75rem">
+      <div class="row">
+        <button class="btn btn-cy" onclick="visionKeySave()" style="margin-bottom:0">Salvar Chave</button>
+        <button class="btn btn-x"  onclick="visionKeyTest()" style="margin-bottom:0">Testar</button>
+        <button class="btn btn-re" onclick="visionKeyClear()" style="margin-bottom:0;max-width:80px;font-size:.7rem">Limpar</button>
+      </div>
+      <div id="vision-test-result" style="display:none;margin-top:8px;font-size:.62rem;
+        color:var(--mu2);line-height:1.7;padding:8px 10px;background:var(--bg);
+        border:1px solid var(--bd);border-radius:6px"></div>
+    </div>
+
+    <!-- SPI Pattern -->
+    <div class="card">
+      <div class="ctit">Padrão SPI · OCR</div>
+      <div class="ibox">
+        <b>Ativado automaticamente ao digitar SPI</b><br>
+        Referência: <code>I</code> + 11 dígitos + 1 letra<br>
+        Quantidade: campo <code>Qtd</code> seguido do número<br><br>
+        Exemplo de etiqueta:<br>
+        <code>I12345678901A</code><br>
+        <code>Qtd: 240</code><br>
+        Resultado: Ref <b>I12345678901A</b> · Qtd <b>240</b>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctit">Padrão LINKPLAS</div>
+      <div class="ibox">
+        <b>Ativado automaticamente ao digitar LINKPLAS</b><br>
+        Referência: segmento <code>P{REF}</code> até o próximo espaço<br>
+        Quantidade: <code>Q000{QTY}000</code> — 3 dígitos centrais<br><br>
+        Exemplo:<br>
+        <code>S049... P4901974V000 Q000010000 1T...</code><br>
+        Resultado: Ref <b>4901974V000</b> · Qtd <b>10</b>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ctit">Outros Formatos</div>
+      <div class="ibox"><b>Pipe</b><br><code>REF|DESCRICAO|QTD|FORNECEDOR</code></div>
+      <div class="ibox"><b>Chave-Valor</b><br><code>REF=x;QTD=10;FORN=y</code></div>
+      <div class="ibox"><b>JSON</b><br><code>{"ref":"x","qty":10}</code></div>
+      <div class="ibox" style="margin-bottom:0"><b>Texto livre</b><br>
+        Qualquer texto é aceito como referência (qtd = 1)
+      </div>
+    </div>
+  </div>
+</div>
+
+<canvas id="cv" style="display:none"></canvas>
+
+<script>
+/* ═══════════════════════════════════════════════
+   AVISO AO FECHAR COM SESSÃO ATIVA
+═══════════════════════════════════════════════ */
+window.addEventListener('beforeunload', e => {
+  if(session && Object.keys(grouped).length > 0){
+    e.preventDefault();
+    e.returnValue = 'Há uma sessão ativa com dados não salvos. Deseja sair?';
+    return e.returnValue;
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════ */
+let session   = null;   // { forn, nf, start }
+let items     = [];     // leituras individuais
+let grouped   = {};     // { ref: {ref,desc,qty,scans,forn} }
+let pending   = null;
+let camOn     = false;
+let camStream = null;
+let torchOn   = false;
+let readCnt   = 0;
+let raf       = null;
+let lastQR    = 0;
+let mcCb      = null;
+let editRef   = null;
+let viewHist  = null;
+let histEditMode = false;
+let histEditRef  = null;
+let pageStack = ['pg-dash'];
+let _sortMode = 'az';       // 'az' | 'qty' | 'rec'
+let _histFilter = 'todos';  // fornecedor filter
+
+/* ═══════════════════════════════════════════════
+   STORAGE — histórico persistente com verificação de tamanho
+═══════════════════════════════════════════════ */
+function histLoad(){ try{ return JSON.parse(localStorage.getItem('rcb_hist')||'[]'); }catch(e){ return []; } }
+
+function histSave(arr){
+  try{
+    const json = JSON.stringify(arr);
+    // Verificar tamanho (localStorage ~5MB; alertar acima de 3.5MB)
+    const kb = (json.length * 2) / 1024;
+    const warn = document.getElementById('storage-warn');
+    if(kb > 3500){ if(warn) warn.classList.add('on'); }
+    else { if(warn) warn.classList.remove('on'); }
+    localStorage.setItem('rcb_hist', json);
+    return true;
+  }catch(e){
+    // QuotaExceededError
+    toast('⚠ Armazenamento cheio! Exporte e exclua contagens antigas.', true);
+    const warn = document.getElementById('storage-warn');
+    if(warn) warn.classList.add('on');
+    return false;
+  }
+}
+
+function histAdd(entry){
+  const arr = histLoad();
+  arr.unshift(entry);
+  if(arr.length > 50) arr.pop();
+  return histSave(arr);
+}
+function histDel(id){
+  const arr = histLoad().filter(h=>h.id!==id);
+  histSave(arr);
+}
+function histUpdate(id, updatedEntry){
+  const arr = histLoad();
+  const idx = arr.findIndex(h=>h.id===id);
+  if(idx>=0){ arr[idx]=updatedEntry; histSave(arr); }
+}
+
+/* ── Session persistence ── */
+function sessStateLoad(){
+  try{
+    const s=JSON.parse(localStorage.getItem('rcb_sess')||'null');
+    if(!s||!s.session)return;
+    session=s.session; items=s.items||[]; grouped=s.grouped||{};
+  }catch(e){}
+}
+function sessStateSave(){
+  try{
+    if(session) localStorage.setItem('rcb_sess',JSON.stringify({session,items,grouped}));
+    else localStorage.removeItem('rcb_sess');
+  }catch(e){
+    toast('⚠ Erro ao salvar sessão — armazenamento cheio!', true);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   CLOCK
+═══════════════════════════════════════════════ */
+function tClk(){ document.getElementById('dash-clk').textContent = new Date().toLocaleTimeString('pt-BR'); }
+tClk(); setInterval(tClk, 1000);
+
+/* ═══════════════════════════════════════════════
+   NAVEGAÇÃO
+═══════════════════════════════════════════════ */
+function navTo(id){
+  const cur = pageStack[pageStack.length-1];
+  if(cur===id) return;
+  document.getElementById(cur).classList.add('back');
+  const el = document.getElementById(id);
+  el.classList.remove('out');
+  el.classList.remove('back');
+  pageStack.push(id);
+  if(id==='pg-lista')    renderList();
+  if(id==='pg-hist')     renderHist();
+  if(id==='pg-dash')     updateDash();
+  if(id==='pg-forn')     _updateVisionStatus();
+  if(id==='pg-scan' && session){
+    document.getElementById('card-sess').style.display   = 'none';
+    document.getElementById('card-cam').style.display    = 'block';
+    document.getElementById('card-manual').style.display = 'block';
+    document.getElementById('card-acoes').style.display  = 'block';
+    _applyFornBadges(session.forn);
+    document.getElementById('sess-tag').textContent      = session.forn.toUpperCase();
+    document.getElementById('m-forn').value              = session.forn;
+  }
+}
+
+function navBack(){
+  if(pageStack.length<=1) return;
+  const cur  = pageStack.pop();
+  const prev = pageStack[pageStack.length-1];
+  if(cur==='pg-scan' && camOn) camStop();
+  document.getElementById(cur).classList.add('out');
+  document.getElementById(prev).classList.remove('back');
+  updateDash();
+}
+
+/* ═══════════════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════════════ */
+function updateDash(){
+  const refs = Object.keys(grouped).length;
+  const cxas = Object.values(grouped).reduce((s,r)=>s+r.qty,0);
+  const hist = histLoad().length;
+
+  document.getElementById('d-refs').textContent = refs;
+  document.getElementById('d-cxas').textContent = cxas;
+  document.getElementById('d-hist').textContent = hist;
+  document.getElementById('db-hist-sub').textContent = hist + ' contagen' + (hist!==1?'s':'');
+  document.getElementById('db-lista-sub').textContent = refs + ' ref' + (refs!==1?'s':'') + ' · ' + cxas + ' pç';
+
+  const dot  = document.getElementById('sdot');
+  const name = document.getElementById('sname');
+  const det  = document.getElementById('sdet');
+  if(session){
+    dot.classList.add('live');
+    name.textContent = session.forn + (session.nf?' · '+session.nf:'');
+    det.textContent  = 'Iniciada '+session.start+' · '+items.length+' scan'+(items.length!==1?'s':'');
+  } else {
+    dot.classList.remove('live');
+    name.textContent = 'Nenhuma sessão ativa';
+    det.textContent  = 'Toque em Iniciar Contagem para começar';
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   SESSION
+═══════════════════════════════════════════════ */
+function isLP(n){ return (n||'').trim().toUpperCase()==='LINKPLAS'; }
+function isSPI(n){ return (n||'').trim().toUpperCase()==='SPI'; }
+
+function _applyFornBadges(forn){
+  document.getElementById('lp-badge').style.display  = isLP(forn)?'block':'none';
+  document.getElementById('spi-badge').style.display = isSPI(forn)?'block':'none';
+  document.getElementById('mode-toggle').style.display = isSPI(forn)?'flex':'none';
+  if(isSPI(forn)) setMode('ocr'); else setMode('qr');
+}
+
+function sessStart(){
+  const forn = document.getElementById('inp-forn').value.trim();
+  if(!forn){ toast('Informe o fornecedor',true); return; }
+  const nf = document.getElementById('inp-nf').value.trim();
+  session = { forn, nf, start: new Date().toLocaleString('pt-BR') };
+  _applyFornBadges(forn);
+  document.getElementById('sess-tag').textContent    = forn.toUpperCase();
+  document.getElementById('card-sess').style.display   = 'none';
+  document.getElementById('card-cam').style.display    = 'block';
+  document.getElementById('card-manual').style.display = 'block';
+  document.getElementById('card-acoes').style.display  = 'block';
+  document.getElementById('m-forn').value = forn;
+  sessStateSave();
+  updateDash();
+  toast('Sessão iniciada');
+}
+
+function sessCancel(){
+  camStop();
+  session = null; items = []; grouped = {}; pending = null;
+  sessStateSave();
+  resetScanUI();
+  updateDash();
+  navBack();
+}
+
+function sessSave(){
+  if(!session){ toast('Nenhuma sessão ativa',true); return; }
+  if(!Object.keys(grouped).length){ toast('Nenhum item para salvar',true); return; }
+
+  const entry = {
+    id      : Date.now(),
+    forn    : session.forn,
+    nf      : session.nf,
+    start   : session.start,
+    end     : new Date().toLocaleString('pt-BR'),
+    scans   : items.length,
+    grouped : {...grouped},
+    items   : [...items]
+  };
+  const ok = histAdd(entry);
+  if(!ok){ toast('Falha ao salvar — armazenamento cheio!', true); return; }
+
+  camStop();
+  session = null; items = []; grouped = {}; pending = null;
+  sessStateSave();
+  resetScanUI();
+  updateDash();
+  toast('Contagem salva no histórico');
+  navBack();
+}
+
+function resetScanUI(){
+  document.getElementById('card-sess').style.display   = 'block';
+  document.getElementById('card-cam').style.display    = 'none';
+  document.getElementById('card-manual').style.display = 'none';
+  document.getElementById('card-acoes').style.display  = 'none';
+  document.getElementById('qr-box').classList.remove('on');
+  document.getElementById('lp-badge').style.display    = 'none';
+  document.getElementById('inp-forn').value = '';
+  document.getElementById('inp-nf').value   = '';
+}
+
+/* ── Exportar sessão ativa (sem finalizar) ── */
+function exportSessAtiva(){
+  if(!session||!Object.keys(grouped).length){ toast('Nenhum dado para exportar',true); return; }
+  const rows=[['Referencia','Descricao','Leituras','Pecas','Fornecedor','NF','Inicio']];
+  Object.values(grouped).forEach(r=>{
+    rows.push([r.ref,r.desc||'',r.scans,r.qty,r.forn,session.nf||'',session.start]);
+  });
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`SESSAO_${(session.forn||'').replace(/\s/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast('CSV da sessão exportado');
+}
+
+/* ═══════════════════════════════════════════════
+   SORT — lista atual
+═══════════════════════════════════════════════ */
+function setSort(mode){
+  _sortMode = mode;
+  ['az','qty','rec'].forEach(m=>{
+    document.getElementById('sort-'+m).classList.toggle('active', m===mode);
+  });
+  renderList();
+}
+
+/* ═══════════════════════════════════════════════
+   CÂMERA — engine com 3 decoders em cascata
+   1º BarcodeDetector (API nativa Chrome/Android)
+   2º ZXing           (robusto, handles baixa qualidade)
+   3º jsQR            (fallback leve)
+═══════════════════════════════════════════════ */
+let _barcodeDetector = null;
+let _zxingReader     = null;
+let _engineLabel     = '—';
+
+async function initEngines(){
+  try{
+    if('BarcodeDetector' in window){
+      // Usa todos os formatos suportados (inclui code_128, ean_13, etc.)
+      const formats = await BarcodeDetector.getSupportedFormats();
+      const qrFormats = formats.filter(f=>['qr_code','code_128','ean_13','ean_8','code_39','data_matrix'].includes(f));
+      if(qrFormats.length){
+        _barcodeDetector = new BarcodeDetector({formats: qrFormats});
+        _engineLabel = 'BarcodeDetector';
+      }
+    }
+  }catch(e){ _barcodeDetector=null; }
+
+  try{
+    if(window.ZXing){
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      _zxingReader = new ZXing.BrowserQRCodeReader(hints);
+      _engineLabel = _engineLabel==='—' ? 'ZXing' : _engineLabel+' + ZXing';
+    }
+  }catch(e){ _zxingReader=null; }
+
+  if(typeof jsQR==='function'){
+    _engineLabel = _engineLabel==='—' ? 'jsQR' : _engineLabel+' + jsQR';
+  }
+
+  const badge = document.getElementById('engine-badge');
+  if(badge) badge.textContent = 'Decoders: ' + _engineLabel;
+}
+
+async function camStart(){
+  if(camOn) return;
+  if(!session){ toast('Inicie uma sessão primeiro',true); return; }
+  setSt('Iniciando câmera...','wa');
+
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    setSt('Use o Chrome ou Edge para acessar a câmera.','err'); return;
+  }
+
+  const cfgs = [
+    {video:{facingMode:{exact:'environment'},width:{ideal:1920},height:{ideal:1080},focusMode:'continuous'}},
+    {video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},
+    {video:{facingMode:{ideal:'environment'}}},
+    {video:{facingMode:'environment'}},
+    {video:true}
+  ];
+
+  let stream=null, lastErr=null;
+  for(const c of cfgs){
+    try{ stream=await navigator.mediaDevices.getUserMedia(c); break; }
+    catch(e){ lastErr=e; if(e.name==='NotAllowedError'||e.name==='PermissionDeniedError') break; }
+  }
+
+  if(!stream){
+    let msg='Câmera não disponível.';
+    if(lastErr){
+      if(lastErr.name==='NotAllowedError'||lastErr.name==='PermissionDeniedError')
+        msg='Permissão negada. Toque no cadeado → permita câmera.';
+      else if(lastErr.name==='NotFoundError') msg='Nenhuma câmera encontrada.';
+      else if(lastErr.name==='NotReadableError') msg='Câmera em uso por outro app.';
+      else msg='Erro: '+(lastErr.name||lastErr.message);
+    }
+    setSt(msg,'err'); return;
+  }
+
+  camStream = stream;
+  const vid = document.getElementById('vid');
+  vid.srcObject = stream;
+  vid.setAttribute('playsinline','');
+  vid.setAttribute('webkit-playsinline','');
+  vid.muted = true;
+
+  try{
+    const tk = stream.getVideoTracks()[0];
+    const cp = tk.getCapabilities ? tk.getCapabilities() : {};
+    const av = {};
+    if(cp.focusMode && cp.focusMode.includes('continuous')) av.focusMode='continuous';
+    if(Object.keys(av).length) await tk.applyConstraints({advanced:[av]});
+    if(cp.torch) document.getElementById('btn-torch').style.display='block';
+    const settings = tk.getSettings ? tk.getSettings() : {};
+    const res = settings.width ? `${settings.width}×${settings.height}` : '';
+    setSt('Câmera pronta'+(res?' ('+res+')':''),'ok');
+  }catch(e){ setSt('Câmera pronta','ok'); }
+
+  vid.onloadedmetadata = async()=>{
+    try{ await vid.play(); }catch(e){}
+    camOn=true; readCnt=0;
+    document.getElementById('cam-ph').classList.add('off');
+    document.getElementById('btn-open').style.display ='none';
+    document.getElementById('btn-close').style.display='block';
+    document.getElementById('cam-wrap').classList.add('scanning');
+    setSt('Aponte o QR Code para a área de leitura','ok');
+    raf=requestAnimationFrame(scanLoop);
+    if(_scanMode==='ocr') _ocrLoopStart();
+  };
+}
+
+function camStop(){
+  camOn=false; torchOn=false; _scanBusy=false;
+  _ocrLoopStop();
+  if(raf){cancelAnimationFrame(raf);raf=null;}
+  const vid=document.getElementById('vid');
+  vid.srcObject=null;
+  if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;}
+  document.getElementById('cam-ph').classList.remove('off');
+  document.getElementById('cam-wrap').classList.remove('scanning');
+  document.getElementById('btn-open').style.display ='block';
+  document.getElementById('btn-close').style.display='none';
+  document.getElementById('btn-torch').style.display='none';
+  document.getElementById('cam-cnt').textContent='';
+  document.getElementById('ocr-countdown').classList.remove('on');
+  setSt('','');
+}
+
+async function torchTog(){
+  if(!camStream)return;
+  try{
+    const tk=camStream.getVideoTracks()[0];
+    torchOn=!torchOn;
+    await tk.applyConstraints({advanced:[{torch:torchOn}]});
+    const b=document.getElementById('btn-torch');
+    b.textContent=torchOn?'Luz OFF':'Luz';
+    b.style.color=torchOn?'var(--wa)':'';
+  }catch(e){toast('Lanterna não disponível',true);}
+}
+
+function setSt(msg,cls){
+  const el=document.getElementById('cam-st');
+  el.textContent=msg; el.className=cls;
+}
+
+/* ── SCAN LOOP ── */
+let _scanBusy  = false;
+
+function scanLoop(){
+  if(!camOn)return;
+  raf=requestAnimationFrame(scanLoop);
+  if(_scanMode==='ocr') return;
+  if(pending||_scanBusy)return;
+  const vid=document.getElementById('vid');
+  if(vid.readyState<vid.HAVE_ENOUGH_DATA||vid.videoWidth===0)return;
+  if(Date.now()-lastQR<600)return;
+
+  _scanBusy=true;
+  decodeFrame(vid).then(result=>{
+    if(result && Date.now()-lastQR>600){
+      readCnt++;
+      document.getElementById('cam-cnt').textContent=readCnt+' lidos';
+      lastQR=Date.now();
+      handleQR(result);
+    }
+  }).catch(()=>{}).finally(()=>{ _scanBusy=false; });
+}
+
+async function decodeFrame(vid){
+  const cv=document.getElementById('cv');
+  const W=vid.videoWidth, H=vid.videoHeight;
+  cv.width=W; cv.height=H;
+  const ctx=cv.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(vid,0,0);
+
+  if(_barcodeDetector){
+    try{
+      const results=await _barcodeDetector.detect(cv);
+      if(results.length>0) return results[0].rawValue;
+    }catch(e){}
+  }
+
+  if(_zxingReader){
+    try{
+      const crops=[
+        {x:0,y:0,w:W,h:H},
+        {x:Math.floor(W*.15),y:Math.floor(H*.15),w:Math.floor(W*.7),h:Math.floor(H*.7)},
+      ];
+      for(const c of crops){
+        const imgData=ctx.getImageData(c.x,c.y,c.w,c.h);
+        const lum=new ZXing.RGBLuminanceSource(imgData.data,c.w,c.h);
+        const bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+        try{
+          const res=_zxingReader.decodeBitmap(bmp);
+          if(res&&res.getText()) return res.getText();
+        }catch(e){}
+      }
+    }catch(e){}
+  }
+
+  if(typeof jsQR==='function'){
+    const crops=[
+      ctx.getImageData(0,0,W,H),
+      (()=>{const cw=Math.floor(W*.7),ch=Math.floor(H*.7);return ctx.getImageData(Math.floor((W-cw)/2),Math.floor((H-ch)/2),cw,ch);})(),
+    ];
+    for(const img of crops){
+      let qr=jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+      if(!qr) qr=jsQR(img.data,img.width,img.height,{inversionAttempts:'onlyInvert'});
+      if(qr&&qr.data) return qr.data;
+    }
+  }
+
+  return null;
+}
+
+/* ═══════════════════════════════════════════════
+   GOOGLE CLOUD VISION — OCR para etiquetas SPI
+   Prioridade: EMBEDDED_VISION_KEY → localStorage → sem OCR
+═══════════════════════════════════════════════ */
+let _ocrBusy  = false;
+let _scanMode = 'qr';
+let _ocrTimer = null;
+let _lastOcrTs = 0;
+
+/* ── Resolução da chave com prioridade ── */
+function visionKeyResolve(){
+  // 1. Chave embutida no HTML (maior prioridade)
+  if(typeof EMBEDDED_VISION_KEY === 'string' && EMBEDDED_VISION_KEY.trim().length > 10){
+    return EMBEDDED_VISION_KEY.trim();
+  }
+  // 2. Chave salva no localStorage
+  return localStorage.getItem('rcb_vision_key') || '';
+}
+
+function visionKeyLoad(){ return localStorage.getItem('rcb_vision_key')||''; }
+
+function visionKeySave(){
+  const k = document.getElementById('vision-key-input').value.trim();
+  if(!k){ toast('Cole a chave antes de salvar',true); return; }
+  localStorage.setItem('rcb_vision_key', k);
+  _updateVisionStatus();
+  toast('Chave salva');
+}
+
+function visionKeyClear(){
+  localStorage.removeItem('rcb_vision_key');
+  document.getElementById('vision-key-input').value = '';
+  _updateVisionStatus();
+  toast('Chave local removida');
+}
+
+function _updateVisionStatus(){
+  const embKey = (typeof EMBEDDED_VISION_KEY === 'string' && EMBEDDED_VISION_KEY.trim().length > 10)
+    ? EMBEDDED_VISION_KEY.trim() : '';
+  const lsKey  = visionKeyLoad();
+  const el     = document.getElementById('vision-status');
+  const embInfo = document.getElementById('emb-key-info');
+  const inp    = document.getElementById('vision-key-input');
+  if(!el) return;
+
+  if(embKey){
+    el.textContent = 'EMBUTIDA';
+    el.className   = 'key-src emb';
+    if(embInfo) embInfo.style.display = 'block';
+  } else if(lsKey){
+    el.textContent = 'LOCAL';
+    el.className   = 'key-src ls';
+    if(embInfo) embInfo.style.display = 'none';
+    if(inp) inp.value = lsKey;
+  } else {
+    el.textContent = 'SEM CHAVE';
+    el.className   = 'key-src none';
+    if(embInfo) embInfo.style.display = 'none';
+  }
+}
+
+setTimeout(_updateVisionStatus, 100);
+
+async function visionKeyTest(){
+  const k = visionKeyResolve();
+  const res = document.getElementById('vision-test-result');
+  res.style.display = 'block';
+  if(!k){ res.textContent = '⚠ Nenhuma chave configurada.'; res.style.color='var(--re)'; return; }
+  res.textContent = 'Testando conexão…'; res.style.color='var(--mu2)';
+  try{
+    const r = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${k}`,
+      { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ requests:[{
+          image:{ content:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==' },
+          features:[{type:'TEXT_DETECTION',maxResults:1}]
+        }]})
+      });
+    const d = await r.json();
+    if(d.error){ res.textContent = '✗ Erro: '+d.error.message; res.style.color='var(--re)'; }
+    else { res.textContent = '✓ Chave válida! Vision API respondeu corretamente.'; res.style.color='var(--gr)'; }
+  }catch(e){ res.textContent = '✗ Sem conexão: '+e.message; res.style.color='var(--re)'; }
+}
+
+/* ── OCR Countdown visual ── */
+let _ocrCountdownAnim = null;
+function _ocrCountdownStart(ms){
+  const bar = document.getElementById('ocr-countdown');
+  const fill = document.getElementById('ocr-countdown-fill');
+  if(!bar||!fill) return;
+  bar.classList.add('on');
+  fill.style.transition='none';
+  fill.style.width='100%';
+  // force reflow
+  fill.offsetHeight;
+  fill.style.transition=`width ${ms}ms linear`;
+  fill.style.width='0%';
+}
+function _ocrCountdownStop(){
+  const bar=document.getElementById('ocr-countdown');
+  const fill=document.getElementById('ocr-countdown-fill');
+  if(bar) bar.classList.remove('on');
+  if(fill){ fill.style.transition='none'; fill.style.width='100%'; }
+}
+
+/* ── Captura frame → Google Vision → parseSPI ── */
+async function ocrCapture(silent=false){
+  if(!camOn){ if(!silent) toast('Abra a câmera primeiro',true); return; }
+  if(_ocrBusy) return;
+
+  const key = visionKeyResolve();
+  if(!key){
+    setSt('Configure a chave da Google Vision API em Fornecedores','err');
+    if(!silent) toast('Chave Vision API não configurada',true);
+    _ocrLoopStop();
+    return;
+  }
+
+  _ocrBusy = true;
+  if(!silent){
+    document.getElementById('ocr-overlay').classList.add('on');
+    document.getElementById('ocr-prog').textContent = 'Capturando…';
+  } else {
+    setSt('⟳ Lendo etiqueta…','wa');
+  }
+
+  try{
+    const vid = document.getElementById('vid');
+    if(vid.readyState < vid.HAVE_ENOUGH_DATA || vid.videoWidth === 0){
+      _ocrBusy = false; return;
+    }
+
+    const cv  = document.getElementById('cv');
+    const vW  = vid.videoWidth, vH = vid.videoHeight;
+    const cropX = vW*0.10, cropY = vH*0.10;
+    const cropW = vW*0.80, cropH = vH*0.80;
+    const TARGET = 800;
+    const scale  = Math.min(1, TARGET/cropW);
+    cv.width  = Math.round(cropW*scale);
+    cv.height = Math.round(cropH*scale);
+    const ctx = cv.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cv.width, cv.height);
+
+    const b64 = cv.toDataURL('image/jpeg', 0.85).split(',')[1];
+    if(!silent) document.getElementById('ocr-prog').textContent = 'Enviando para Vision API…';
+
+    const resp = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${key}`,
+      { method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ requests:[{
+          image: { content: b64 },
+          features:[{ type:'TEXT_DETECTION', maxResults:1 }],
+          imageContext:{ languageHints:['pt','en'] }
+        }]})
+      }
+    );
+
+    const data = await resp.json();
+
+    if(data.error){
+      const msg = data.error.message||'Erro Vision API';
+      setSt('Vision API: '+msg,'err');
+      if(!silent) toast(msg,true);
+      _ocrBusy=false;
+      document.getElementById('ocr-overlay').classList.remove('on');
+      return;
+    }
+
+    const fullText = data.responses?.[0]?.fullTextAnnotation?.text
+                  || data.responses?.[0]?.textAnnotations?.[0]?.description
+                  || '';
+
+    const rawBox = document.getElementById('ocr-raw-box');
+    rawBox.textContent = fullText.trim().slice(0, 300);
+    rawBox.classList.add('on');
+
+    const result = parseSPI(fullText);
+    if(result){
+      _lastOcrTs = Date.now();
+      readCnt++;
+      document.getElementById('cam-cnt').textContent = readCnt+' lidos';
+      handleQR(`SPI_OCR|${result.ref}|${result.qty}|SPI`);
+      _ocrLoopStop();
+      _ocrCountdownStop();
+      setSt('Etiqueta lida — confirme ou cancele','ok');
+      if(!silent) toast(`SPI: ${result.ref} · ${result.qty} pç`,'ok');
+      doFlash();
+    } else {
+      const flatNorm = fullText.replace(/\s/g,'').replace(/[Oo]/g,'0').replace(/[Il|\/\\]/g,'1');
+      const hasRef = /[1](\d{10,13})[A-Za-z]/i.test(flatNorm);
+      const hasQtd = /[Qq][Tt][Dd]/i.test(fullText);
+      const hasBigNum = /\b\d{1,4}\b/.test(fullText);
+      if(!silent){
+        let hint = 'Padrão SPI não detectado';
+        if(!hasRef && !hasQtd) hint += ' — etiqueta não visível ou fora do foco';
+        else if(!hasRef)       hint += ` — ref I+dígitos+letra não encontrada`;
+        else if(!hasQtd && !hasBigNum) hint += ' — quantidade não encontrada';
+        setSt(hint,'err');
+        toast('Centralize a etiqueta e tente novamente',true);
+      } else {
+        setSt(hasRef?'⟳ Qtd não encontrada…':hasQtd||hasBigNum?'⟳ Ref não encontrada…':'⟳ Aguardando etiqueta…','wa');
+      }
+    }
+  }catch(e){
+    if(!silent){ setSt('Erro: '+e.message,'err'); toast('Falha na leitura',true); }
+    else setSt('⟳ Erro de rede — tentando…','err');
+  }finally{
+    _ocrBusy=false;
+    document.getElementById('ocr-overlay').classList.remove('on');
+  }
+}
+
+/* ── Loop automático 1s com countdown visual ── */
+const OCR_INTERVAL = 1000;
+function _ocrLoopStart(){
+  _ocrLoopStop();
+  _ocrCountdownStart(OCR_INTERVAL);
+  _ocrTimer = setInterval(()=>{
+    if(pending||_ocrBusy) return;
+    _ocrCountdownStart(OCR_INTERVAL);
+    ocrCapture(true);
+  }, OCR_INTERVAL);
+}
+function _ocrLoopStop(){
+  if(_ocrTimer){ clearInterval(_ocrTimer); _ocrTimer=null; }
+  _ocrCountdownStop();
+}
+
+function setMode(mode){
+  _scanMode = mode;
+  document.getElementById('btn-mode-qr').classList.toggle('active', mode==='qr');
+  document.getElementById('btn-mode-ocr').classList.toggle('active', mode==='ocr');
+  document.getElementById('cam-mode-label').textContent = mode==='ocr' ? 'OCR Auto · SPI' : 'Leitura QR';
+  document.getElementById('ocr-capture-row').style.display = mode==='ocr' ? 'block' : 'none';
+  if(mode==='ocr'){
+    if(camOn) _ocrLoopStart();
+  } else {
+    _ocrLoopStop();
+    document.getElementById('ocr-overlay').classList.remove('on');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   PARSERS
+═══════════════════════════════════════════════ */
+function parseSPI(text){
+  function normalizeRef(s){
+    return s
+      .replace(/[Oo]/g, '0')
+      .replace(/[Il|\/\\]/g, '1');
+  }
+
+  const lines = text.split('\n');
+  const flat  = text.replace(/\s/g,'');
+  let ref = null;
+
+  const refPatterns = [
+    /(?<![A-Za-z0-9])([Il1|\/])(\d{11})([A-Za-z])(?![A-Za-z0-9])/,
+    /(?<![A-Za-z0-9])([Il1|\/])(\d{10,13})([A-Za-z])(?![A-Za-z0-9])/,
+  ];
+
+  for(const pat of refPatterns){
+    const m = flat.match(pat);
+    if(m){ ref = 'I' + m[2] + m[3].toUpperCase(); break; }
+  }
+
+  if(!ref){
+    const normFlat = normalizeRef(flat);
+    for(const pat of refPatterns){
+      const m = normFlat.match(pat);
+      if(m){ ref = 'I' + m[2] + m[3].toUpperCase(); break; }
+    }
+  }
+
+  if(!ref){
+    const joined = lines.map((l,i) => l + (lines[i+1]||'')).concat(lines);
+    for(const seg of joined){
+      const s = seg.replace(/\s/g,'');
+      const sn = normalizeRef(s);
+      for(const pat of refPatterns){
+        const m = sn.match(pat);
+        if(m){ ref = 'I' + m[2] + m[3].toUpperCase(); break; }
+      }
+      if(ref) break;
+    }
+  }
+
+  if(!ref){
+    const m = flat.match(/(?<![A-Za-z0-9])(\d{11,12})([A-Za-z])(?![A-Za-z0-9])/);
+    if(m){ ref = 'I' + m[1] + m[2].toUpperCase(); }
+  }
+
+  if(!ref) return null;
+
+  let qty = null;
+  const mQ1 = text.match(/[Qq][Tt][Dd][Ee]?\s*[:\-]?\s*(\d+)/);
+  if(mQ1) qty = parseInt(mQ1[1], 10);
+
+  if(!qty || qty <= 0){
+    for(const line of lines){
+      if(/[Qq][Tt][Dd]/i.test(line)){
+        const nm = line.match(/(\d+)/);
+        if(nm){ qty = parseInt(nm[1],10); break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0){
+    const refDigits = ref.slice(1, -1);
+    for(const line of lines){
+      const clean = line.trim();
+      const nm = clean.match(/^(\d{1,4})$/);
+      if(nm && !refDigits.includes(nm[1])){
+        const v = parseInt(nm[1], 10);
+        if(v > 0 && v < 10000){ qty = v; break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0){
+    for(const line of lines){
+      if(line.includes(ref.slice(1,5)) || line.replace(/[Il1]/g,'I').includes(ref.slice(0,5))){
+        const nums = [...line.matchAll(/\b(\d{1,4})\b/g)].map(m=>parseInt(m[1]));
+        const v = nums.find(n => n > 0 && n < 10000 && !ref.includes(String(n).padStart(4,'0')));
+        if(v){ qty = v; break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0){
+    for(const line of lines){
+      if(/\d{2}\.\d{2}(\.\d{2,4})?/.test(line)) continue;
+      const nm = line.match(/\b(\d{1,4})\b/);
+      if(nm){
+        const v = parseInt(nm[1],10);
+        if(v > 0 && v < 10000){ qty = v; break; }
+      }
+    }
+  }
+
+  if(!qty || qty <= 0) return null;
+  return { ref, qty };
+}
+
+function parseLinkplas(raw){
+  const mR=raw.match(/\bP([^\s]+)/); if(!mR)return null;
+  const mQ=raw.match(/\bQ(\d{9})/);  if(!mQ)return null;
+  const qty=parseInt(mQ[1].slice(3,6),10);
+  if(!qty||qty<=0)return null;
+  return{ref:mR[1],qty};
+}
+
+function parseGeneric(raw){
+  raw=raw.trim();
+  if(raw.startsWith('{')){
+    try{const j=JSON.parse(raw);return{
+      ref:j.ref||j.referencia||j.codigo||Object.values(j)[0]||raw,
+      desc:j.desc||j.descricao||'',
+      qty:parseInt(j.qty||j.qtd||j.quantidade||1),
+      forn:j.forn||j.fornecedor||''
+    };}catch(e){}
+  }
+  if(raw.includes('|')){const p=raw.split('|');return{ref:p[0]||raw,desc:p[1]||'',qty:parseInt(p[2])||1,forn:p[3]||''};}
+  const sep=raw.includes(';')?';':(raw.includes(',')&&raw.includes('='))?',':null;
+  if(sep&&raw.includes('=')){
+    const o={};raw.split(sep).forEach(s=>{const[k,v]=s.split('=');if(k&&v)o[k.trim().toLowerCase()]=v.trim();});
+    return{ref:o.ref||o.referencia||o.codigo||raw,desc:o.desc||o.descricao||'',
+      qty:parseInt(o.qtd||o.qty||o.quantidade||1),forn:o.forn||o.fornecedor||''};
+  }
+  if(raw.includes(';')){const p=raw.split(';');return{ref:p[0]||raw,desc:p[1]||'',qty:parseInt(p[2])||1,forn:p[3]||''};}
+  return{ref:raw,desc:'',qty:1,forn:''};
+}
+
+/* ── handleQR com detecção de duplicata rápida ── */
+let _lastHandledRaw = '';
+let _lastHandledTs  = 0;
+
+function handleQR(raw){
+  if(!session)return;
+
+  // Duplicata exata nos últimos 2s → ignorar e piscar alerta
+  if(raw === _lastHandledRaw && Date.now() - _lastHandledTs < 2000){
+    const existing = document.getElementById('qr-box');
+    if(existing && existing.classList.contains('on')){
+      existing.classList.add('dup-flash');
+      setTimeout(()=>existing.classList.remove('dup-flash'), 400);
+    }
+    toast('QR já lido — aguardando confirmação','wa');
+    return;
+  }
+  _lastHandledRaw = raw;
+  _lastHandledTs  = Date.now();
+
+  let parsed;
+  if(raw.startsWith('SPI_OCR|')){
+    const p=raw.split('|');
+    parsed={ref:p[1]||raw, desc:'', qty:parseInt(p[2])||1, forn:p[3]||session.forn};
+  } else if(isLP(session.forn)){
+    const lp=parseLinkplas(raw);
+    if(!lp){setSt('Padrão LINKPLAS não reconhecido','err');return;}
+    parsed={ref:lp.ref,desc:'',qty:lp.qty,forn:session.forn};
+  }else{
+    const g=parseGeneric(raw);
+    parsed={...g,forn:g.forn||session.forn};
+  }
+  pending={...parsed,raw,time:new Date().toLocaleTimeString('pt-BR')};
+  showResult(pending);
+}
+
+function showResult(item){
+  document.getElementById('r-ref').textContent  = item.ref;
+  document.getElementById('r-qty').textContent  = item.qty + ' pç/vol';
+  document.getElementById('r-forn').textContent = item.forn;
+  document.getElementById('r-raw').textContent  = item.raw.length>55?item.raw.slice(0,55)+'…':item.raw;
+  document.getElementById('r-vols').value = 1;
+
+  recalcTotal();
+
+  const ex=grouped[item.ref];
+  const ar=document.getElementById('r-acc-row');
+  const ab=document.getElementById('acc-bar');
+  if(ex){
+    document.getElementById('r-acc').textContent=ex.qty;
+    ar.style.display='flex';
+    ab.textContent=`Ref já possui ${ex.scans} leitura${ex.scans>1?'s':''} · ${ex.qty} pç acumuladas. Será somado.`;
+    ab.classList.add('on');
+  }else{ar.style.display='none';ab.classList.remove('on');}
+
+  document.getElementById('qr-box').classList.add('on');
+  setSt('QR lido — ajuste volumes e confirme','ok');
+  doFlash();
+  const b=document.getElementById('scan-body');
+  setTimeout(()=>b.scrollTo({top:b.scrollHeight,behavior:'smooth'}),80);
+}
+
+function recalcTotal(){
+  if(!pending) return;
+  const vols = Math.max(1, parseInt(document.getElementById('r-vols').value)||1);
+  const total = pending.qty * vols;
+  document.getElementById('r-total').textContent = total + ' pç';
+  const ex=grouped[pending.ref];
+  const ab=document.getElementById('acc-bar');
+  if(ex){
+    const novoTotal = ex.qty + total;
+    document.getElementById('r-acc').textContent=ex.qty;
+    ab.textContent=`Ref já possui ${ex.scans} leitura${ex.scans>1?'s':''} · ${ex.qty} pç acumuladas → novo total: ${novoTotal} pç`;
+    ab.classList.add('on');
+  }
+}
+
+function changeVols(delta){
+  const inp=document.getElementById('r-vols');
+  const v=Math.max(1,(parseInt(inp.value)||1)+delta);
+  inp.value=v;
+  recalcTotal();
+}
+
+function itemConfirm(){
+  if(!pending)return;
+  const vols = Math.max(1, parseInt(document.getElementById('r-vols').value)||1);
+  const totalQty = pending.qty * vols;
+  addItem({...pending, qty: totalQty, vols, qtyPerVol: pending.qty});
+  pending=null;
+  document.getElementById('qr-box').classList.remove('on');
+  lastQR=0;
+  _lastHandledRaw=''; _lastHandledTs=0;
+  if(_scanMode==='ocr' && camOn){
+    setSt('⟳ Aguardando próxima etiqueta…','wa');
+    _ocrLoopStart();
+  } else {
+    setSt('Aponte para o próximo QR Code','ok');
+  }
+}
+
+function itemCancel(){
+  pending=null;
+  document.getElementById('qr-box').classList.remove('on');
+  lastQR=0;
+  _lastHandledRaw=''; _lastHandledTs=0;
+  if(_scanMode==='ocr' && camOn){
+    setSt('⟳ Aguardando etiqueta…','wa');
+    _ocrLoopStart();
+  } else {
+    setSt('Aponte para o QR Code','');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   ITEMS (sessão atual)
+═══════════════════════════════════════════════ */
+function addItem(item){
+  items.push({...item,id:Date.now()});
+  if(!grouped[item.ref])
+    grouped[item.ref]={ref:item.ref,desc:item.desc||'',qty:0,scans:0,forn:item.forn,lastTs:Date.now()};
+  grouped[item.ref].qty  +=item.qty;
+  grouped[item.ref].scans+=1;
+  grouped[item.ref].lastTs=Date.now();
+  sessStateSave();
+  updateDash();
+  const g=grouped[item.ref];
+  const volInfo = item.vols && item.vols>1 ? ` (${item.vols} vol × ${item.qtyPerVol})` : '';
+  toast(g.scans>1
+    ? `${item.ref}  +${item.qty} pç${volInfo}  →  Total: ${g.qty} pç`
+    : `${item.ref}  ·  ${item.qty} pç${volInfo}`);
+}
+
+function manualAdd(){
+  const ref =document.getElementById('m-ref').value.trim();
+  const qty =parseInt(document.getElementById('m-qty').value);
+  const forn=document.getElementById('m-forn').value.trim()||(session?session.forn:'');
+  if(!ref)    {toast('Informe a referência',true);return;}
+  if(!qty||qty<1){toast('Quantidade inválida',true);return;}
+  if(!session){toast('Inicie uma sessão primeiro',true);return;}
+  addItem({ref,desc:'',qty,forn,raw:'manual',time:new Date().toLocaleTimeString('pt-BR')});
+  document.getElementById('m-ref').value='';
+  document.getElementById('m-qty').value='';
+}
+
+function listaClear(){
+  items=[];grouped={};sessStateSave();updateDash();renderList();toast('Lista limpa');
+}
+
+function processManualQR(){
+  if(!session){ toast('Inicie uma sessão primeiro',true); return; }
+  const raw = document.getElementById('qr-text-input').value.trim();
+  if(!raw){ toast('Digite o conteúdo do QR Code',true); return; }
+  document.getElementById('qr-text-input').value='';
+  handleQR(raw);
+  toast('Código processado','ok');
+}
+
+/* ═══════════════════════════════════════════════
+   EDIÇÃO DE ITEM (sessão atual)
+═══════════════════════════════════════════════ */
+function openEdit(ref){
+  const r=grouped[ref];
+  if(!r)return;
+  editRef=ref;
+  document.getElementById('ed-ref').value =r.ref;
+  document.getElementById('ed-qty').value =r.qty;
+  document.getElementById('ed-forn').value=r.forn;
+  document.getElementById('mdl-edit').classList.add('on');
+}
+function editClose(){ document.getElementById('mdl-edit').classList.remove('on'); editRef=null; }
+function editSave(){
+  if(!editRef)return;
+  const newRef =document.getElementById('ed-ref').value.trim();
+  const newQty =parseInt(document.getElementById('ed-qty').value);
+  const newForn=document.getElementById('ed-forn').value.trim();
+  if(!newRef)    {toast('Informe a referência',true);return;}
+  if(!newQty||newQty<1){toast('Quantidade inválida',true);return;}
+  items.forEach(i=>{ if(i.ref===editRef){ i.ref=newRef; i.forn=newForn; } });
+  const old=grouped[editRef];
+  delete grouped[editRef];
+  if(!grouped[newRef])
+    grouped[newRef]={ref:newRef,desc:old.desc,qty:0,scans:0,forn:newForn,lastTs:old.lastTs||Date.now()};
+  grouped[newRef].qty  =newQty;
+  grouped[newRef].scans=old.scans;
+  grouped[newRef].forn =newForn;
+  sessStateSave();
+  editClose();
+  renderList();
+  updateDash();
+  toast('Item atualizado');
+}
+function deleteRef(ref){
+  mc(`Remover "${ref}"`,`Todos os registros desta referência serão removidos.`,()=>{
+    items=items.filter(i=>i.ref!==ref);
+    delete grouped[ref];
+    sessStateSave();
+    updateDash();renderList();
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER LIST (sessão atual) — com ordenação
+═══════════════════════════════════════════════ */
+function renderList(){
+  const q=(document.getElementById('search').value||'').toLowerCase();
+  const tot=Object.values(grouped).reduce((s,r)=>s+r.qty,0);
+  const refs=Object.keys(grouped).length;
+  document.getElementById('ls-scans').textContent=items.length;
+  document.getElementById('ls-cxas').textContent =tot;
+  document.getElementById('ls-refs').textContent =refs;
+
+  let rows=Object.values(grouped).filter(r=>!q||r.ref.toLowerCase().includes(q));
+
+  switch(_sortMode){
+    case 'qty': rows.sort((a,b)=>b.qty-a.qty); break;
+    case 'rec': rows.sort((a,b)=>(b.lastTs||0)-(a.lastTs||0)); break;
+    default:    rows.sort((a,b)=>a.ref.localeCompare(b.ref)); break;
+  }
+
+  const el=document.getElementById('ilist');
+  if(!rows.length){
+    el.innerHTML=`<div class="empty"><div class="ei">· · ·</div><div class="et">${refs?'Nenhum resultado':'Nenhum item registrado'}</div></div>`;
+    return;
+  }
+  // Usa createElement para segurança em vez de innerHTML com dados do usuário
+  el.innerHTML='';
+  rows.forEach(r=>{
+    const div=document.createElement('div');
+    div.className='ic'+(r.scans>1?' multi':'');
+
+    const info=document.createElement('div');
+    info.style.cssText='flex:1;min-width:0';
+    info.setAttribute('role','button');
+    info.setAttribute('aria-label',`Editar ${r.ref}`);
+    info.onclick=()=>openEdit(r.ref);
+
+    const ref=document.createElement('div');
+    ref.className='iref'; ref.textContent=r.ref;
+
+    const meta=document.createElement('div');
+    meta.className='imeta';
+    meta.textContent=(r.forn||'');
+    if(r.scans>1){
+      const tag=document.createElement('span');
+      tag.className='itag'; tag.textContent=`${r.scans} leituras`;
+      meta.append(' · ', tag);
+    }
+
+    info.append(ref, meta);
+
+    const qty=document.createElement('div');
+    qty.className='iqty'; qty.textContent=r.qty;
+    qty.setAttribute('role','button'); qty.onclick=()=>openEdit(r.ref);
+
+    const del=document.createElement('button');
+    del.className='idel'; del.textContent='✕';
+    del.setAttribute('aria-label',`Remover ${r.ref}`);
+    del.onclick=()=>deleteRef(r.ref);
+
+    div.append(info, qty, del);
+    el.appendChild(div);
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   HISTÓRICO — com busca e filtro por fornecedor
+═══════════════════════════════════════════════ */
+function setHistFilter(forn){
+  _histFilter = forn;
+  document.querySelectorAll('.hftab').forEach(t=>{
+    t.classList.toggle('active', t.textContent==='Todos' ? forn==='todos' : t.dataset.forn===forn);
+  });
+  renderHist();
+}
+
+function renderHist(){
+  const arr=histLoad();
+  document.getElementById('d-hist').textContent=arr.length;
+
+  // Atualizar tabs de filtro
+  const filterEl=document.getElementById('hist-filter');
+  if(filterEl){
+    const fornList=['todos',...new Set(arr.map(h=>h.forn).filter(Boolean))];
+    filterEl.innerHTML=fornList.map(f=>`
+      <div class="hftab${(_histFilter===f||(_histFilter==='todos'&&f==='todos'))?' active':''}"
+        data-forn="${h_(f)}"
+        onclick="setHistFilter('${ea(f)}')">${h_(f==='todos'?'Todos':f)}</div>
+    `).join('');
+  }
+
+  const q=(document.getElementById('hist-search').value||'').toLowerCase();
+
+  const filtered = arr.filter(h=>{
+    const matchFilter = _histFilter==='todos' || h.forn===_histFilter;
+    const matchSearch = !q || (h.forn||'').toLowerCase().includes(q)
+      || (h.nf||'').toLowerCase().includes(q);
+    return matchFilter && matchSearch;
+  });
+
+  const el=document.getElementById('hist-list');
+  if(!filtered.length){
+    el.innerHTML=`<div class="empty"><div class="ei">· · ·</div><div class="et">${arr.length?'Nenhum resultado':'Nenhuma contagem salva'}</div></div>`;
+    return;
+  }
+
+  el.innerHTML='';
+  filtered.forEach(hs=>{
+    const refs=Object.keys(hs.grouped||{}).length;
+    const cxas=Object.values(hs.grouped||{}).reduce((s,r)=>s+r.qty,0);
+
+    const card=document.createElement('div');
+    card.className='hcard';
+
+    card.innerHTML=`
+      <div class="hcard-head">
+        <div>
+          <div class="hcard-forn">${h_(hs.forn)}${hs.nf?` <span style="font-size:.6rem;color:var(--mu2)">· ${h_(hs.nf)}</span>`:''}</div>
+          <div class="hcard-date">${hs.start} → ${hs.end||'—'}</div>
+        </div>
+        <button class="hdel" aria-label="Excluir contagem">✕</button>
+      </div>
+      <div class="hcard-stats">
+        <div class="hstat"><b>${refs}</b> refs</div>
+        <div class="hstat"><b>${cxas}</b> peças</div>
+        <div class="hstat"><b>${hs.scans||0}</b> scans</div>
+      </div>
+      <button class="btn btn-x" style="margin-top:10px;margin-bottom:0;font-size:.72rem;padding:8px">Ver Detalhes / Exportar</button>
+    `;
+    card.querySelector('.hdel').onclick=(e)=>{ e.stopPropagation(); delHist(hs.id); };
+    card.querySelector('.btn').onclick=()=>openHistDet(hs.id);
+    el.appendChild(card);
+  });
+}
+
+// Alias seguro de h() para uso em template strings de renderHist
+function h_(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function delHist(id){
+  mc('Excluir Contagem','Esta contagem será removida permanentemente do histórico.',()=>{
+    histDel(id);
+    renderHist();
+    updateDash();
+    toast('Contagem excluída');
+  });
+}
+
+function openHistDet(id){
+  const arr=histLoad();
+  const hs=arr.find(x=>x.id===id);
+  if(!hs)return;
+  viewHist=hs;
+  histEditMode=false;
+  histEditRef=null;
+
+  document.getElementById('hdet-title').textContent=hs.forn;
+  document.getElementById('hdet-info').innerHTML=
+    `Fornecedor: <b style="color:var(--cy)">${h_(hs.forn)}</b>${hs.nf?` · NF: ${h_(hs.nf)}`:''}<br>`+
+    `Início: ${hs.start}  ·  Fim: ${hs.end||'—'}`;
+
+  document.getElementById('btn-hdet-edit').style.display='block';
+  document.getElementById('btn-hdet-edit').textContent='Editar';
+  document.getElementById('hdet-edit-bar').style.display='none';
+
+  renderHistDet();
+  navTo('pg-hist-det');
+}
+
+function renderHistDet(){
+  if(!viewHist)return;
+  const rows=Object.values(viewHist.grouped||{}).sort((a,b)=>b.qty-a.qty);
+  const tot =rows.reduce((s,r)=>s+r.qty,0);
+  const refs=rows.length;
+
+  document.getElementById('hd-scans').textContent=viewHist.scans||0;
+  document.getElementById('hd-cxas').textContent =tot;
+  document.getElementById('hd-refs').textContent =refs;
+
+  const listEl=document.getElementById('hdet-list');
+  listEl.innerHTML='';
+
+  rows.forEach(r=>{
+    const div=document.createElement('div');
+    div.className='hic'+(r.scans>1?' multi':'');
+
+    const info=document.createElement('div');
+    info.style.cssText='flex:1;min-width:0';
+    if(histEditMode){ info.setAttribute('role','button'); info.onclick=()=>openHistItemEdit(r.ref); }
+
+    const ref=document.createElement('div');
+    ref.className='iref'; ref.textContent=r.ref;
+
+    const meta=document.createElement('div');
+    meta.className='imeta'; meta.textContent=(r.forn||'');
+    if(r.scans>1){
+      const tag=document.createElement('span');
+      tag.className='itag'; tag.textContent=`${r.scans} leituras`;
+      meta.append(' · ',tag);
+    }
+    info.append(ref,meta);
+
+    const qty=document.createElement('div');
+    qty.className='iqty'; qty.textContent=r.qty;
+    if(histEditMode) qty.onclick=()=>openHistItemEdit(r.ref);
+
+    div.append(info,qty);
+
+    if(histEditMode){
+      const del=document.createElement('button');
+      del.className='idel'; del.textContent='✕';
+      del.setAttribute('aria-label',`Remover ${r.ref}`);
+      del.onclick=()=>deleteHistRef(r.ref);
+      div.appendChild(del);
+    }
+    listEl.appendChild(div);
+  });
+
+  buildHistExport(viewHist,rows,tot);
+  document.getElementById('hdet-exp').style.display='block';
+}
+
+function toggleHistEdit(){
+  histEditMode=!histEditMode;
+  const btn=document.getElementById('btn-hdet-edit');
+  const bar=document.getElementById('hdet-edit-bar');
+  if(histEditMode){
+    btn.textContent='Concluir';
+    btn.style.color='var(--wa)';
+    bar.style.display='block';
+    toast('Modo edição ativado','wa');
+  } else {
+    btn.textContent='Editar';
+    btn.style.color='';
+    bar.style.display='none';
+    toast('Edições salvas');
+  }
+  renderHistDet();
+}
+
+function openHistItemEdit(ref){
+  if(!histEditMode||!viewHist)return;
+  const r=viewHist.grouped[ref];
+  if(!r)return;
+  histEditRef=ref;
+  document.getElementById('hed-ref').value =r.ref;
+  document.getElementById('hed-qty').value =r.qty;
+  document.getElementById('hed-forn').value=r.forn||'';
+  document.getElementById('mdl-hist-edit').classList.add('on');
+}
+
+function histEditClose(){
+  document.getElementById('mdl-hist-edit').classList.remove('on');
+  histEditRef=null;
+}
+
+function histEditSave(){
+  if(!histEditRef||!viewHist)return;
+  const newRef =document.getElementById('hed-ref').value.trim();
+  const newQty =parseInt(document.getElementById('hed-qty').value);
+  const newForn=document.getElementById('hed-forn').value.trim();
+  if(!newRef){toast('Informe a referência',true);return;}
+  if(!newQty||newQty<1){toast('Quantidade inválida',true);return;}
+
+  const old=viewHist.grouped[histEditRef];
+  delete viewHist.grouped[histEditRef];
+  if(!viewHist.grouped[newRef])
+    viewHist.grouped[newRef]={ref:newRef,desc:old.desc||'',qty:0,scans:old.scans||1,forn:newForn};
+  viewHist.grouped[newRef].qty  =newQty;
+  viewHist.grouped[newRef].forn =newForn;
+  viewHist.scans=Object.values(viewHist.grouped).reduce((s,r)=>s+(r.scans||1),0);
+
+  histUpdate(viewHist.id, viewHist);
+  histEditClose();
+  renderHistDet();
+  updateDash();
+  toast('Item atualizado');
+}
+
+function deleteHistRef(ref){
+  if(!histEditMode||!viewHist)return;
+  mc(`Remover "${ref}"`,`Esta referência será removida da contagem.`,()=>{
+    delete viewHist.grouped[ref];
+    viewHist.scans=Object.values(viewHist.grouped).reduce((s,r)=>s+(r.scans||1),0);
+    histUpdate(viewHist.id, viewHist);
+    renderHistDet();
+    updateDash();
+  });
+}
+
+function openHistAddItem(){
+  document.getElementById('hadd-ref').value='';
+  document.getElementById('hadd-qty').value='';
+  document.getElementById('hadd-forn').value=viewHist?viewHist.forn:'';
+  document.getElementById('mdl-hist-add').classList.add('on');
+}
+function histAddClose(){ document.getElementById('mdl-hist-add').classList.remove('on'); }
+function histAddSave(){
+  if(!viewHist)return;
+  const ref =document.getElementById('hadd-ref').value.trim();
+  const qty =parseInt(document.getElementById('hadd-qty').value);
+  const forn=document.getElementById('hadd-forn').value.trim()||viewHist.forn;
+  if(!ref){toast('Informe a referência',true);return;}
+  if(!qty||qty<1){toast('Quantidade inválida',true);return;}
+
+  if(!viewHist.grouped) viewHist.grouped={};
+  if(viewHist.grouped[ref]){
+    viewHist.grouped[ref].qty  +=qty;
+    viewHist.grouped[ref].scans+=1;
+  } else {
+    viewHist.grouped[ref]={ref,desc:'',qty,scans:1,forn};
+  }
+  viewHist.scans=(viewHist.scans||0)+1;
+
+  histUpdate(viewHist.id, viewHist);
+  histAddClose();
+  renderHistDet();
+  updateDash();
+  toast(`${ref} adicionado`);
+}
+
+function buildHistExport(hs,rows,tot){
+  let t='RECEBIMENTO DE MERCADORIAS\n';
+  t+=`Fornecedor : ${hs.forn}\n`;
+  if(hs.nf)t+=`NF / Pedido: ${hs.nf}\n`;
+  t+=`Inicio     : ${hs.start}\n`;
+  t+=`Fim        : ${hs.end||'—'}\n`;
+  t+=`Exportado  : ${new Date().toLocaleString('pt-BR')}\n`;
+  t+=`${'-'.repeat(44)}\n`;
+  t+=`${'REFERENCIA'.padEnd(16)}${'LEIT'.padStart(6)}${'PECAS'.padStart(8)}\n`;
+  t+=`${'-'.repeat(44)}\n`;
+  rows.forEach(r=>{t+=`${r.ref.slice(0,15).padEnd(16)}${String(r.scans).padStart(6)}${String(r.qty).padStart(8)}\n`;});
+  t+=`${'-'.repeat(44)}\n${'TOTAL'.padEnd(16)}${String(hs.scans||0).padStart(6)}${String(tot).padStart(8)}\n`;
+  document.getElementById('hdet-exbox').textContent=t;
+}
+
+function exportHistCSV(){
+  if(!viewHist)return;
+  const rows=[['Referencia','Descricao','Leituras','Pecas','Fornecedor','NF','Inicio','Fim']];
+  Object.values(viewHist.grouped||{}).forEach(r=>{
+    rows.push([r.ref,r.desc||'',r.scans,r.qty,r.forn,viewHist.nf||'',viewHist.start,viewHist.end||'']);
+  });
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`${viewHist.forn.replace(/\s/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();URL.revokeObjectURL(url);toast('CSV exportado');
+}
+
+function copyHist(){
+  navigator.clipboard.writeText(document.getElementById('hdet-exbox').textContent)
+    .then(()=>toast('Copiado')).catch(()=>toast('Erro ao copiar',true));
+}
+
+/* ═══════════════════════════════════════════════
+   MODAL CONFIRMAÇÃO
+═══════════════════════════════════════════════ */
+function mc(title,msg,cb){
+  document.getElementById('mc-title').textContent=title;
+  document.getElementById('mc-msg').textContent=msg;
+  mcCb=cb;
+  document.getElementById('mdl-conf').classList.add('on');
+  document.getElementById('mc-ok').onclick=()=>{mcClose();if(mcCb)mcCb();};
+}
+function mcClose(){document.getElementById('mdl-conf').classList.remove('on');}
+
+/* ═══════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════ */
+let tT;
+function toast(msg,type=false){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='on'+(type===true?' err':type==='wa'?' wa':'');
+  clearTimeout(tT);tT=setTimeout(()=>t.className='',2800);
+}
+function doFlash(){
+  const f=document.getElementById('flash');
+  f.classList.add('on');setTimeout(()=>f.classList.remove('on'),140);
+}
+function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+const e=h;
+function ea(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+sessStateLoad();
+if(session){
+  document.getElementById('card-sess').style.display   = 'none';
+  document.getElementById('card-cam').style.display    = 'block';
+  document.getElementById('card-manual').style.display = 'block';
+  document.getElementById('card-acoes').style.display  = 'block';
+  _applyFornBadges(session.forn);
+  document.getElementById('sess-tag').textContent      = session.forn.toUpperCase();
+  document.getElementById('m-forn').value              = session.forn;
+}
+initEngines();
+updateDash();
+// Verificar tamanho do storage ao iniciar
+try{
+  const kb=(JSON.stringify(localStorage)).length*2/1024;
+  if(kb>3500) document.getElementById('storage-warn').classList.add('on');
+}catch(e){}
+</script>
+</body>
+</html>
