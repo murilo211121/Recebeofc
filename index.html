@@ -313,6 +313,9 @@ textarea{resize:none;min-height:60px}
 .hic-edit input{margin-bottom:0;padding:7px 10px;font-size:.82rem;flex:1}
 .hic-edit .btn{padding:8px 12px;font-size:.72rem;width:auto;margin-bottom:0;letter-spacing:1px}
 
+/* ══ SCAN LIST COLLAPSE ══ */
+#scan-list-body.collapsed{display:none}
+
 /* QR manual input */
 .qr-manual{background:rgba(0,216,255,.04);border:1px solid rgba(0,216,255,.15);
   border-radius:8px;padding:10px 12px;margin-bottom:8px}
@@ -454,7 +457,23 @@ textarea{resize:none;min-height:60px}
 #forn-test-box .ok-val{color:var(--gr)}
 #forn-test-box .err-val{color:var(--re)}
 
-/* ══ AI ASSISTANT ══ */
+/* ══ FIXO REFS ══ */
+.fixo-row{display:grid;grid-template-columns:1fr 90px 32px;gap:6px;align-items:center;margin-bottom:7px}
+.fixo-row input{margin-bottom:0;padding:9px 10px;font-size:.82rem}
+.fixo-row .del-btn{background:none;border:1px solid rgba(255,51,85,.3);border-radius:6px;
+  color:var(--re);cursor:pointer;height:38px;font-size:.8rem;display:flex;align-items:center;justify-content:center;
+  transition:background .15s}
+.fixo-row .del-btn:active{background:rgba(255,51,85,.15)}
+
+/* Quick-pick fixo na tela de contagem */
+.fixo-pick-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fixo-pick-btn{background:var(--s2);border:1px solid rgba(0,245,160,.25);border-radius:10px;
+  padding:11px 10px;cursor:pointer;text-align:left;transition:border-color .15s,background .12s}
+.fixo-pick-btn:active{background:var(--s3);border-color:var(--gr)}
+.fixo-pick-ref{font-family:var(--R);font-weight:700;font-size:.88rem;color:var(--tx);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+.fixo-pick-qty{font-family:var(--R);font-weight:700;font-size:1.15rem;color:var(--gr)}
+.fixo-pick-lbl{font-size:.48rem;color:var(--mu2);letter-spacing:.5px;text-transform:uppercase;margin-top:1px}
 .ai-panel{background:linear-gradient(135deg,rgba(0,216,255,.04) 0%,rgba(0,245,160,.03) 100%);
   border:1px solid rgba(0,216,255,.22);border-radius:12px;padding:14px;margin-bottom:10px;
   position:relative;overflow:hidden}
@@ -679,15 +698,15 @@ textarea{resize:none;min-height:60px}
         <div class="dbtn-lbl" id="dbtn-scan-lbl">Iniciar Contagem</div>
         <div class="dbtn-sub" id="dbtn-scan-sub">Escanear etiquetas</div>
       </div>
-      <div class="dbtn gr" onclick="navTo('pg-lista')">
+      <div class="dbtn gr" onclick="navTo('pg-hist')">
         <div class="dbtn-ico">&#9783;</div>
         <div class="dbtn-lbl">Contagens</div>
-        <div class="dbtn-sub" id="db-lista-sub">Sessão atual</div>
-      </div>
-      <div class="dbtn wa" onclick="navTo('pg-hist')">
-        <div class="dbtn-ico">&#9636;</div>
-        <div class="dbtn-lbl">Histórico</div>
         <div class="dbtn-sub" id="db-hist-sub">Contagens salvas</div>
+      </div>
+      <div class="dbtn wa" onclick="dashExport()">
+        <div class="dbtn-ico">&#8681;</div>
+        <div class="dbtn-lbl">Exportar</div>
+        <div class="dbtn-sub" id="db-lista-sub">CSV da sessão atual</div>
       </div>
       <div class="dbtn re" onclick="navTo('pg-forn')">
         <div class="dbtn-ico">&#9776;</div>
@@ -847,6 +866,15 @@ textarea{resize:none;min-height:60px}
       </div>
     </div>
 
+    <!-- Referências Fixas (aparece se fornecedor da sessão tem tipo=fixo) -->
+    <div class="card" id="card-fixo" style="display:none">
+      <div class="ctit">
+        ⚡ Referências Fixas
+        <span id="fixo-forn-tag" style="color:var(--gr);font-size:.7rem"></span>
+      </div>
+      <div class="fixo-pick-grid" id="fixo-pick-grid"></div>
+    </div>
+
     <!-- Entrada manual -->
     <div class="card" id="card-manual" style="display:none">
       <div class="ctit">Entrada Manual</div>
@@ -868,6 +896,27 @@ textarea{resize:none;min-height:60px}
         onclick="mc('Encerrar Sessão','A sessão será encerrada sem salvar. Os dados atuais serão perdidos.',sessCancel)">
         Descartar Sessão
       </button>
+    </div>
+
+    <!-- Lista de itens bipados na tela de leitura -->
+    <div id="card-scan-list" style="display:none">
+      <div class="sep"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-family:var(--R);font-weight:700;font-size:.65rem;letter-spacing:2px;text-transform:uppercase;color:var(--cy)">
+          Itens Bipados
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div id="scan-list-count" style="font-size:.55rem;color:var(--mu2)"></div>
+          <button style="background:none;border:none;color:var(--cy);font-family:var(--R);
+            font-size:.6rem;letter-spacing:1px;cursor:pointer;padding:2px 0"
+            onclick="toggleScanList()">
+            <span id="scan-list-toggle-lbl">▲ Ocultar</span>
+          </button>
+        </div>
+      </div>
+      <div id="scan-list-body">
+        <div class="ilist" id="scan-ilist"></div>
+      </div>
     </div>
 
   </div>
@@ -1083,6 +1132,7 @@ textarea{resize:none;min-height:60px}
           <option value="kv">Chave-Valor  REF=x;QTD=10</option>
           <option value="json">JSON  {"ref":"x","qty":10}</option>
           <option value="posicional">Posicional (extrair por posição fixa)</option>
+          <option value="fixo">Referências Fixas (qtd pré-definida)</option>
         </select>
       </div>
 
@@ -1167,6 +1217,21 @@ textarea{resize:none;min-height:60px}
           </div>
           <label>Dividir Qtd por</label>
           <input id="fn-pos-div" type="number" value="1" min="1">
+        </div>
+      </div>
+
+      <!-- Seção Fixo -->
+      <div class="card" id="fs-fixo" style="display:none">
+        <div class="ctit">
+          Referências Fixas
+          <button onclick="fixoAddRow('fn-fixo-list')" style="background:none;border:none;color:var(--cy);
+            font-family:var(--R);font-weight:700;font-size:.7rem;cursor:pointer;letter-spacing:1px">+ Adicionar</button>
+        </div>
+        <div class="ibox" style="margin-bottom:10px">
+          Cadastre referências com quantidade padrão. Na tela de contagem aparecerá um botão rápido para cada uma.
+        </div>
+        <div id="fn-fixo-list">
+          <!-- linhas inseridas dinamicamente -->
         </div>
       </div>
 
@@ -1341,22 +1406,121 @@ textarea{resize:none;min-height:60px}
   </div>
 </div>
 
-<!-- MODAL EDITAR FORNECEDOR CADASTRADO -->
-<div class="mbg" id="mdl-forn-edit">
-  <div class="md" style="max-width:400px;max-height:88vh;overflow-y:auto">
-    <h3 id="mfe-title">Editar Fornecedor</h3>
-    <label>Nome</label>
-    <input id="mfe-nome" type="text" autocapitalize="characters">
-    <label>Tipo de Parser</label>
-    <select id="mfe-tipo" disabled style="opacity:.5"><!-- read-only display --></select>
-    <div id="mfe-info" style="font-size:.6rem;color:var(--mu2);line-height:1.8;
-      padding:8px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;margin-bottom:10px"></div>
-    <div class="mrow">
-      <button class="btn btn-x"  onclick="fornEditClose()">Cancelar</button>
-      <button class="btn btn-cy" onclick="fornEditSave()">Salvar Nome</button>
+<!-- MODAL EDITAR FORNECEDOR CADASTRADO (completo) -->
+<div class="mbg" id="mdl-forn-edit" style="align-items:flex-start;padding:0;overflow-y:auto">
+  <div class="md" style="max-width:480px;width:100%;margin:auto;border-radius:13px;padding:20px 18px 24px">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin-bottom:0" id="mfe-title">Editar Fornecedor</h3>
+      <button onclick="fornEditClose()" style="background:none;border:none;color:var(--mu2);font-size:1.1rem;cursor:pointer;line-height:1;padding:2px 4px">✕</button>
     </div>
-    <button class="btn btn-re" style="margin-top:8px;font-size:.72rem;padding:9px"
-      onclick="fornEditDelete()">Excluir Fornecedor</button>
+
+    <!-- Nome -->
+    <label>Nome do Fornecedor <span style="color:var(--re)">*</span></label>
+    <input id="mfe-nome" type="text" autocapitalize="characters" autocomplete="off" placeholder="Ex: ACME INDUSTRIA">
+
+    <!-- Tipo -->
+    <label>Tipo de Etiqueta / Parser</label>
+    <select id="mfe-tipo" onchange="mfeTypeChange()">
+      <option value="generico">Genérico (texto livre, pipe, JSON, chave-valor)</option>
+      <option value="regex">Regex Personalizado</option>
+      <option value="pipe">Pipe  REF|DESC|QTD|FORN</option>
+      <option value="kv">Chave-Valor  REF=x;QTD=10</option>
+      <option value="json">JSON  {"ref":"x","qty":10}</option>
+      <option value="posicional">Posicional (extrair por posição fixa)</option>
+      <option value="fixo">Referências Fixas (qtd pré-definida)</option>
+    </select>
+
+    <!-- Seção Regex -->
+    <div id="mfe-fs-regex" style="display:none">
+      <div style="font-size:.56rem;color:var(--mu2);letter-spacing:.5px;margin-bottom:6px;line-height:1.7">
+        Use <b style="color:var(--cy)">grupo 1</b> <code style="color:var(--gr)">(...)</code> para capturar o valor.
+      </div>
+      <label>Regex Referência <span style="color:var(--re)">*</span></label>
+      <input id="mfe-ref-regex" type="text" placeholder="Ex: P([A-Z0-9]{4,15})" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <label>Regex Quantidade</label>
+      <input id="mfe-qty-regex" type="text" placeholder="Ex: Q\d{3}(\d{3})\d{3}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <div class="g2">
+        <div><label>Dividir Qtd por</label><input id="mfe-qty-div" type="number" value="1" min="1" placeholder="1"></div>
+        <div><label>Prefixo Ref (remover)</label><input id="mfe-ref-strip" type="text" placeholder="Ex: P" autocomplete="off"></div>
+      </div>
+    </div>
+
+    <!-- Seção Pipe -->
+    <div id="mfe-fs-pipe" style="display:none">
+      <div style="font-size:.56rem;color:var(--mu2);letter-spacing:.5px;margin-bottom:6px;line-height:1.7">
+        Formato: <code style="color:var(--gr)">campo1|campo2|campo3</code> — índice base 0.
+      </div>
+      <div class="g3">
+        <div><label>Índice Ref</label><input id="mfe-pipe-ref" type="number" value="0" min="0"></div>
+        <div><label>Índice Qtd</label><input id="mfe-pipe-qty" type="number" value="2" min="0"></div>
+        <div><label>Separador</label><input id="mfe-pipe-sep" type="text" value="|" maxlength="3" autocomplete="off"></div>
+      </div>
+      <label>Índice Descrição (opcional, -1 = ignorar)</label>
+      <input id="mfe-pipe-desc" type="number" value="1" min="-1">
+    </div>
+
+    <!-- Seção Chave-Valor -->
+    <div id="mfe-fs-kv" style="display:none">
+      <div style="font-size:.56rem;color:var(--mu2);letter-spacing:.5px;margin-bottom:6px;line-height:1.7">
+        Formato: <code style="color:var(--gr)">CHAVE=valor;CHAVE2=valor2</code>
+      </div>
+      <div class="g2">
+        <div><label>Chave da Referência</label><input id="mfe-kv-ref" type="text" value="REF" autocomplete="off"></div>
+        <div><label>Chave da Quantidade</label><input id="mfe-kv-qty" type="text" value="QTD" autocomplete="off"></div>
+      </div>
+      <div class="g2">
+        <div><label>Separador de pares</label><input id="mfe-kv-sep" type="text" value=";" maxlength="3" autocomplete="off"></div>
+        <div><label>Separador chave=val</label><input id="mfe-kv-eq" type="text" value="=" maxlength="3" autocomplete="off"></div>
+      </div>
+    </div>
+
+    <!-- Seção Posicional -->
+    <div id="mfe-fs-posicional" style="display:none">
+      <div style="font-size:.56rem;color:var(--mu2);letter-spacing:.5px;margin-bottom:6px;line-height:1.7">
+        Extrai por posição fixa. Posições começam em 0, fim exclusivo.
+      </div>
+      <div style="font-size:.58rem;color:var(--cy);margin-bottom:4px;font-family:var(--R);font-weight:700;letter-spacing:.5px">Referência</div>
+      <div class="g2">
+        <div><label>Início (pos)</label><input id="mfe-pos-ref-s" type="number" value="0" min="0"></div>
+        <div><label>Fim (pos)</label><input id="mfe-pos-ref-e" type="number" value="12" min="1"></div>
+      </div>
+      <div style="font-size:.58rem;color:var(--cy);margin-bottom:4px;font-family:var(--R);font-weight:700;letter-spacing:.5px">Quantidade</div>
+      <div class="g2">
+        <div><label>Início (pos)</label><input id="mfe-pos-qty-s" type="number" value="12" min="0"></div>
+        <div><label>Fim (pos)</label><input id="mfe-pos-qty-e" type="number" value="17" min="1"></div>
+      </div>
+      <label>Dividir Qtd por</label>
+      <input id="mfe-pos-div" type="number" value="1" min="1">
+    </div>
+
+    <!-- Seção Fixo -->
+    <div id="mfe-fs-fixo" style="display:none">
+      <div style="font-size:.56rem;color:var(--mu2);letter-spacing:.5px;margin-bottom:8px;line-height:1.7;
+        padding:8px 10px;background:rgba(0,216,255,.04);border:1px solid rgba(0,216,255,.12);border-radius:6px">
+        Cadastre referências com quantidade padrão. Na tela de contagem aparecerá um botão rápido para cada uma.
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:.6rem;color:var(--mu2);letter-spacing:1px;text-transform:uppercase">Referências</span>
+        <button onclick="fixoAddRow('mfe-fixo-list')" style="background:none;border:none;color:var(--cy);
+          font-family:var(--R);font-weight:700;font-size:.7rem;cursor:pointer;letter-spacing:1px">+ Adicionar</button>
+      </div>
+      <div id="mfe-fixo-list"></div>
+    </div>
+
+    <!-- Testar parser -->
+    <label style="margin-top:4px">Testar Parser — cole um exemplo</label>
+    <textarea id="mfe-test-raw" placeholder="Cole aqui um QR Code ou código de exemplo..." style="min-height:60px;margin-bottom:6px"></textarea>
+    <button class="btn btn-x" onclick="mfeTestParser()" style="font-size:.72rem;padding:8px;margin-bottom:10px">▶ Testar Extração</button>
+    <div id="mfe-test-box" style="display:none;padding:9px 11px;border-radius:7px;font-size:.6rem;line-height:1.9;margin-bottom:10px"></div>
+
+    <div style="height:1px;background:var(--bd);margin-bottom:12px"></div>
+
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn btn-x"  onclick="fornEditClose()">Cancelar</button>
+      <button class="btn btn-gr" onclick="fornEditSave()">💾 Salvar Alterações</button>
+    </div>
+    <button class="btn btn-re" style="font-size:.72rem;padding:9px" onclick="fornEditDelete()">Excluir Fornecedor</button>
   </div>
 </div>
 
@@ -1482,6 +1646,7 @@ function navTo(id){
     _applyFornBadges(session.forn);
     document.getElementById('sess-tag').textContent      = session.forn.toUpperCase();
     document.getElementById('m-forn').value              = session.forn;
+    renderScanList();
   }
 }
 
@@ -1516,7 +1681,7 @@ function updateDash(){
   document.getElementById('d-hist').textContent = hist;
   document.getElementById('db-hist-sub').textContent = hist + ' contagen' + (hist!==1?'s':'');
   document.getElementById('db-lista-sub').textContent = session
-    ? (refs + ' ref' + (refs!==1?'s':'') + ' · ' + cxas + ' pç')
+    ? (refs + ' ref' + (refs!==1?'s':'') + ' · ' + cxas + ' pç — toque para baixar')
     : 'Sem sessão ativa';
 
   const dot  = document.getElementById('sdot');
@@ -1576,11 +1741,60 @@ function fornTabShow(tab){
 /* ── Tipo de parser ── */
 function fornTipoChange(){
   const tipo = document.getElementById('fn-tipo').value;
-  ['regex','pipe','kv','posicional'].forEach(t=>{
+  ['regex','pipe','kv','posicional','fixo'].forEach(t=>{
     document.getElementById('fs-'+t).style.display = tipo===t?'block':'none';
   });
   document.getElementById('forn-test-box').className='';
   document.getElementById('forn-test-box').style.display='none';
+  // Seed primeira linha se vazio
+  if(tipo==='fixo'){
+    const list = document.getElementById('fn-fixo-list');
+    if(!list.children.length) fixoAddRow('fn-fixo-list');
+  }
+}
+
+/* ── Adicionar linha de referência fixa ── */
+function fixoAddRow(containerId, ref='', qty=''){
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  const row = document.createElement('div');
+  row.className = 'fixo-row';
+  row.innerHTML = `
+    <input type="text" placeholder="Referência ex: 4700991V000" value="${h_(ref)}"
+      autocomplete="off" autocorrect="off" autocapitalize="characters"
+      style="font-size:.78rem;padding:9px 10px;margin-bottom:0">
+    <input type="number" placeholder="Qtd" value="${qty ? qty : ''}" min="1"
+      style="font-size:.82rem;padding:9px 8px;margin-bottom:0;text-align:center">
+    <button class="del-btn" onclick="this.parentElement.remove()" title="Remover">✕</button>
+  `;
+  container.appendChild(row);
+  row.querySelector('input').focus();
+}
+
+/* ── Ler linhas de fixo de um container ── */
+function fixoReadRows(containerId){
+  const container = document.getElementById(containerId);
+  if(!container) return [];
+  const rows = [];
+  container.querySelectorAll('.fixo-row').forEach(row=>{
+    const inputs = row.querySelectorAll('input');
+    const ref = (inputs[0]?.value||'').trim().toUpperCase();
+    const qty = parseInt(inputs[1]?.value)||0;
+    if(ref && qty > 0) rows.push({ref, qty});
+  });
+  return rows;
+}
+
+/* ── Preencher container fixo com dados salvos ── */
+function fixoFillRows(containerId, items=[]){
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  container.innerHTML = '';
+  if(items.length){
+    items.forEach(it => fixoAddRow(containerId, it.ref, it.qty));
+  } else {
+    fixoAddRow(containerId);
+  }
 }
 
 function fornFormReset(){
@@ -1644,6 +1858,10 @@ function fornSave(){
     cfg.posQtyS = parseInt(document.getElementById('fn-pos-qty-s').value)||12;
     cfg.posQtyE = parseInt(document.getElementById('fn-pos-qty-e').value)||17;
     cfg.posDiv  = Math.max(1, parseInt(document.getElementById('fn-pos-div').value)||1);
+  } else if(tipo==='fixo'){
+    const refs = fixoReadRows('fn-fixo-list');
+    if(!refs.length){ toast('Adicione ao menos uma referência fixa',true); return; }
+    cfg.fixoRefs = refs;
   }
   // json e generico não têm parâmetros extras
 
@@ -1813,39 +2031,184 @@ function _fornSummary(f){
   if(f.tipo==='pipe')  return `Separador <b>${h_(f.pipeSep)}</b> · Ref[${f.pipeRef}] · Qtd[${f.pipeQty}]`;
   if(f.tipo==='kv')    return `${h_(f.kvRef)}${h_(f.kvEq)}valor${h_(f.kvSep)}${h_(f.kvQty)}${h_(f.kvEq)}número`;
   if(f.tipo==='posicional') return `Ref pos ${f.posRefS}:${f.posRefE} · Qtd pos ${f.posQtyS}:${f.posQtyE}`;
+  if(f.tipo==='fixo'){
+    const refs = (f.fixoRefs||[]);
+    return `${refs.length} referência${refs.length!==1?'s':''} fixa${refs.length!==1?'s':''}: `+
+      refs.slice(0,3).map(r=>`<b>${h_(r.ref)}</b> (${r.qty} pç)`).join(', ')+(refs.length>3?'…':'');
+  }
   return 'Formatos automáticos: JSON, Pipe, Chave-Valor, texto livre';
 }
 
-/* ── Editar nome de fornecedor ── */
+/* ── Editar fornecedor (modal completo) ── */
 let _fornEditNome = null;
+
+function mfeTypeChange(){
+  const tipo = document.getElementById('mfe-tipo').value;
+  ['regex','pipe','kv','posicional','fixo'].forEach(t=>{
+    const el = document.getElementById('mfe-fs-'+t);
+    if(el) el.style.display = tipo===t ? 'block' : 'none';
+  });
+  if(tipo==='fixo'){
+    const list = document.getElementById('mfe-fixo-list');
+    if(list && !list.children.length) fixoAddRow('mfe-fixo-list');
+  }
+  // limpar resultado de teste ao mudar tipo
+  const tb = document.getElementById('mfe-test-box');
+  if(tb){ tb.style.display='none'; tb.className=''; }
+}
+
 function fornEditOpen(nome){
   _fornEditNome = nome;
   const f = fornLoad().find(x=>x.nome===nome);
   if(!f) return;
-  const tipoLabel={generico:'Genérico',regex:'Regex',pipe:'Pipe',kv:'Chave-Valor',json:'JSON',posicional:'Posicional'};
+
   document.getElementById('mfe-title').textContent = nome;
-  document.getElementById('mfe-nome').value = nome;
-  const sel = document.getElementById('mfe-tipo');
-  sel.innerHTML = `<option>${tipoLabel[f.tipo]||f.tipo}</option>`;
-  document.getElementById('mfe-info').innerHTML = _fornSummary(f);
+  document.getElementById('mfe-nome').value  = nome;
+  document.getElementById('mfe-tipo').value  = f.tipo || 'generico';
+  mfeTypeChange();
+
+  // Preencher campos de cada tipo
+  if(f.tipo==='regex'){
+    document.getElementById('mfe-ref-regex').value = f.refRegex || '';
+    document.getElementById('mfe-qty-regex').value = f.qtyRegex || '';
+    document.getElementById('mfe-qty-div').value   = f.qtyDiv   || 1;
+    document.getElementById('mfe-ref-strip').value = f.refStrip || '';
+  } else if(f.tipo==='pipe'){
+    document.getElementById('mfe-pipe-ref').value  = f.pipeRef  ?? 0;
+    document.getElementById('mfe-pipe-qty').value  = f.pipeQty  ?? 2;
+    document.getElementById('mfe-pipe-sep').value  = f.pipeSep  || '|';
+    document.getElementById('mfe-pipe-desc').value = f.pipeDesc ?? 1;
+  } else if(f.tipo==='kv'){
+    document.getElementById('mfe-kv-ref').value = f.kvRef || 'REF';
+    document.getElementById('mfe-kv-qty').value = f.kvQty || 'QTD';
+    document.getElementById('mfe-kv-sep').value = f.kvSep || ';';
+    document.getElementById('mfe-kv-eq').value  = f.kvEq  || '=';
+  } else if(f.tipo==='posicional'){
+    document.getElementById('mfe-pos-ref-s').value = f.posRefS ?? 0;
+    document.getElementById('mfe-pos-ref-e').value = f.posRefE ?? 12;
+    document.getElementById('mfe-pos-qty-s').value = f.posQtyS ?? 12;
+    document.getElementById('mfe-pos-qty-e').value = f.posQtyE ?? 17;
+    document.getElementById('mfe-pos-div').value   = f.posDiv  || 1;
+  } else if(f.tipo==='fixo'){
+    fixoFillRows('mfe-fixo-list', f.fixoRefs || []);
+  }
+
+  // Limpar campo de teste
+  document.getElementById('mfe-test-raw').value = '';
+  const tb = document.getElementById('mfe-test-box');
+  if(tb){ tb.style.display='none'; }
+
   document.getElementById('mdl-forn-edit').classList.add('on');
 }
+
 function fornEditClose(){
   document.getElementById('mdl-forn-edit').classList.remove('on');
-  _fornEditNome=null;
+  _fornEditNome = null;
 }
+
+function mfeTestParser(){
+  const raw  = document.getElementById('mfe-test-raw').value.trim();
+  const box  = document.getElementById('mfe-test-box');
+  if(!raw){ toast('Cole um código de exemplo primeiro',true); return; }
+
+  const tipo = document.getElementById('mfe-tipo').value;
+  const nome = document.getElementById('mfe-nome').value.trim().toUpperCase()||'TESTE';
+  const cfg  = { nome, tipo };
+
+  if(tipo==='regex'){
+    cfg.refRegex = document.getElementById('mfe-ref-regex').value.trim();
+    cfg.qtyRegex = document.getElementById('mfe-qty-regex').value.trim();
+    cfg.qtyDiv   = Math.max(1, parseInt(document.getElementById('mfe-qty-div').value)||1);
+    cfg.refStrip = document.getElementById('mfe-ref-strip').value;
+  } else if(tipo==='pipe'){
+    cfg.pipeRef  = parseInt(document.getElementById('mfe-pipe-ref').value)||0;
+    cfg.pipeQty  = parseInt(document.getElementById('mfe-pipe-qty').value)||2;
+    cfg.pipeSep  = document.getElementById('mfe-pipe-sep').value||'|';
+    cfg.pipeDesc = parseInt(document.getElementById('mfe-pipe-desc').value);
+  } else if(tipo==='kv'){
+    cfg.kvRef = document.getElementById('mfe-kv-ref').value.trim()||'REF';
+    cfg.kvQty = document.getElementById('mfe-kv-qty').value.trim()||'QTD';
+    cfg.kvSep = document.getElementById('mfe-kv-sep').value||';';
+    cfg.kvEq  = document.getElementById('mfe-kv-eq').value||'=';
+  } else if(tipo==='posicional'){
+    cfg.posRefS = parseInt(document.getElementById('mfe-pos-ref-s').value)||0;
+    cfg.posRefE = parseInt(document.getElementById('mfe-pos-ref-e').value)||12;
+    cfg.posQtyS = parseInt(document.getElementById('mfe-pos-qty-s').value)||12;
+    cfg.posQtyE = parseInt(document.getElementById('mfe-pos-qty-e').value)||17;
+    cfg.posDiv  = Math.max(1, parseInt(document.getElementById('mfe-pos-div').value)||1);
+  }
+
+  let result = null;
+  if(tipo==='generico'||tipo==='json'){
+    result = parseGeneric(raw);
+  } else {
+    result = parseCustomForn(raw, cfg);
+    if(!result && tipo==='generico') result = parseGeneric(raw);
+  }
+
+  box.style.display='block';
+  if(result && result.ref){
+    box.style.cssText='display:block;padding:9px 11px;border-radius:7px;font-size:.6rem;line-height:1.9;margin-bottom:10px;border:1px solid var(--gr);background:rgba(0,245,160,.05);color:var(--mu2)';
+    box.innerHTML=`<b style="color:var(--gr)">✓ Extração bem-sucedida</b><br>`+
+      `Referência: <span style="color:var(--gr)">${h(result.ref)}</span><br>`+
+      `Quantidade: <span style="color:var(--gr)">${result.qty} pç</span>`+
+      (result.desc?`<br>Descrição: <span style="color:var(--gr)">${h(result.desc)}</span>`:'');
+  } else {
+    box.style.cssText='display:block;padding:9px 11px;border-radius:7px;font-size:.6rem;line-height:1.9;margin-bottom:10px;border:1px solid var(--re);background:rgba(255,51,85,.05);color:var(--re)';
+    box.innerHTML='✗ Nenhuma extração possível com este padrão.<br>Verifique os campos e tente novamente.';
+  }
+}
+
 function fornEditSave(){
   const newNome = document.getElementById('mfe-nome').value.trim().toUpperCase();
   if(!newNome){ toast('Nome inválido',true); return; }
-  if(['LINKPLAS','SPI'].includes(newNome)){ toast('Nome reservado',true); return; }
+  if(['LINKPLAS','SPI'].includes(newNome) && newNome !== _fornEditNome){
+    toast('Nome reservado — escolha outro',true); return;
+  }
+
+  const tipo = document.getElementById('mfe-tipo').value;
+  const cfg  = { nome: newNome, tipo };
+
+  if(tipo==='regex'){
+    const refR = document.getElementById('mfe-ref-regex').value.trim();
+    if(!refR){ toast('Informe o Regex da Referência',true); return; }
+    try{ new RegExp(refR); }catch(e){ toast('Regex da Referência inválido: '+e.message,true); return; }
+    const qtyR = document.getElementById('mfe-qty-regex').value.trim();
+    if(qtyR){ try{ new RegExp(qtyR); }catch(e){ toast('Regex da Quantidade inválido: '+e.message,true); return; } }
+    cfg.refRegex = refR;
+    cfg.qtyRegex = qtyR;
+    cfg.qtyDiv   = Math.max(1, parseInt(document.getElementById('mfe-qty-div').value)||1);
+    cfg.refStrip = document.getElementById('mfe-ref-strip').value;
+  } else if(tipo==='pipe'){
+    cfg.pipeRef  = parseInt(document.getElementById('mfe-pipe-ref').value)||0;
+    cfg.pipeQty  = parseInt(document.getElementById('mfe-pipe-qty').value)||2;
+    cfg.pipeSep  = document.getElementById('mfe-pipe-sep').value||'|';
+    cfg.pipeDesc = parseInt(document.getElementById('mfe-pipe-desc').value);
+  } else if(tipo==='kv'){
+    cfg.kvRef = document.getElementById('mfe-kv-ref').value.trim()||'REF';
+    cfg.kvQty = document.getElementById('mfe-kv-qty').value.trim()||'QTD';
+    cfg.kvSep = document.getElementById('mfe-kv-sep').value||';';
+    cfg.kvEq  = document.getElementById('mfe-kv-eq').value||'=';
+  } else if(tipo==='posicional'){
+    cfg.posRefS = parseInt(document.getElementById('mfe-pos-ref-s').value)||0;
+    cfg.posRefE = parseInt(document.getElementById('mfe-pos-ref-e').value)||12;
+    cfg.posQtyS = parseInt(document.getElementById('mfe-pos-qty-s').value)||12;
+    cfg.posQtyE = parseInt(document.getElementById('mfe-pos-qty-e').value)||17;
+    cfg.posDiv  = Math.max(1, parseInt(document.getElementById('mfe-pos-div').value)||1);
+  } else if(tipo==='fixo'){
+    const refs = fixoReadRows('mfe-fixo-list');
+    if(!refs.length){ toast('Adicione ao menos uma referência fixa',true); return; }
+    cfg.fixoRefs = refs;
+  }
+
   const arr = fornLoad();
   const idx = arr.findIndex(f=>f.nome===_fornEditNome);
-  if(idx<0){ toast('Fornecedor não encontrado',true); return; }
-  arr[idx].nome = newNome;
+  if(idx < 0){ toast('Fornecedor não encontrado',true); return; }
+  arr[idx] = cfg;
   fornSaveAll(arr);
   fornEditClose();
   renderFornList();
-  toast('Nome atualizado');
+  toast(newNome+' atualizado');
 }
 function fornEditDelete(){
   if(!_fornEditNome) return;
@@ -1876,6 +2239,46 @@ function _applyFornBadges(forn){
   }
   // Popular o select de fornecedor OCR
   _populateOcrFornSelect(forn);
+  // Card de referências fixas
+  _renderFixoCard(customCfg);
+}
+
+function _renderFixoCard(cfg){
+  const card = document.getElementById('card-fixo');
+  const grid = document.getElementById('fixo-pick-grid');
+  const tag  = document.getElementById('fixo-forn-tag');
+  if(!card || !grid) return;
+  if(cfg && cfg.tipo==='fixo' && cfg.fixoRefs && cfg.fixoRefs.length){
+    tag.textContent = cfg.nome;
+    grid.innerHTML = '';
+    cfg.fixoRefs.forEach(item=>{
+      const btn = document.createElement('button');
+      btn.className = 'fixo-pick-btn';
+      btn.innerHTML = `
+        <div class="fixo-pick-ref">${h_(item.ref)}</div>
+        <div class="fixo-pick-qty">${item.qty} <span class="fixo-pick-lbl">peças</span></div>
+      `;
+      btn.onclick = ()=> fixoPickAdd(item, cfg.nome);
+      grid.appendChild(btn);
+    });
+    card.style.display = 'block';
+  } else {
+    card.style.display = 'none';
+  }
+}
+
+function fixoPickAdd(item, fornNome){
+  if(!session){ toast('Inicie uma sessão primeiro',true); return; }
+  addItem({
+    ref  : item.ref,
+    desc : '',
+    qty  : item.qty,
+    forn : fornNome || (session ? session.forn : ''),
+    raw  : 'fixo:'+item.ref,
+    time : new Date().toLocaleTimeString('pt-BR')
+  });
+  // Flash visual no botão
+  doFlash();
 }
 
 function _populateOcrFornSelect(currentForn){
@@ -1907,6 +2310,7 @@ function sessStart(){
   document.getElementById('m-forn').value = forn;
   sessStateSave();
   updateDash();
+  renderScanList();
   toast('Sessão iniciada');
 }
 
@@ -1950,6 +2354,8 @@ function resetScanUI(){
   document.getElementById('card-cam').style.display    = 'none';
   document.getElementById('card-manual').style.display = 'none';
   document.getElementById('card-acoes').style.display  = 'none';
+  document.getElementById('card-fixo').style.display   = 'none';
+  document.getElementById('card-scan-list').style.display = 'none';
   document.getElementById('qr-box').classList.remove('on');
   document.getElementById('lp-badge').style.display    = 'none';
   document.getElementById('inp-forn').value = '';
@@ -2368,13 +2774,22 @@ async function ocrCapture(silent=false){
                   || data.responses?.[0]?.textAnnotations?.[0]?.description
                   || '';
 
-    const rawBox = document.getElementById('ocr-raw-box');
-    rawBox.textContent = fullText.trim().slice(0, 300);
-    rawBox.classList.add('on');
-
     // Determinar fornecedor selecionado no OCR
     const ocrFornSel = document.getElementById('ocr-forn-select');
     const ocrForn = (ocrFornSel ? ocrFornSel.value.trim() : '') || 'SPI';
+
+    // Buscar config do fornecedor uma vez só
+    const customCfg = ocrForn !== 'SPI' ? fornFindByName(ocrForn) : null;
+    const dbgRefs = (customCfg && customCfg.fixoRefs) ? customCfg.fixoRefs.map(r=>r.ref).join(', ') : '—';
+
+    // Debug visível: mostra o que foi lido e o que se espera
+    const rawBox = document.getElementById('ocr-raw-box');
+    rawBox.innerHTML =
+      '<b style="color:var(--cy)">Forn OCR:</b> ' + h_(ocrForn) +
+      ' · <b style="color:var(--cy)">Tipo:</b> ' + h_(customCfg ? customCfg.tipo : 'SPI') + '<br>' +
+      '<b style="color:var(--cy)">Refs fixas:</b> ' + h_(dbgRefs) + '<br>' +
+      '<b style="color:var(--mu2)">Texto lido:</b><br>' + h_(fullText.trim().slice(0, 300));
+    rawBox.classList.add('on');
 
     // Executar o parser correto
     let ocrParsed = null;
@@ -2382,8 +2797,25 @@ async function ocrCapture(silent=false){
       const spiRes = parseSPI(fullText);
       if(spiRes) ocrParsed = { ref: spiRes.ref, qty: spiRes.qty, forn: 'SPI' };
     } else {
-      const customCfg = fornFindByName(ocrForn);
-      if(customCfg && customCfg.tipo !== 'generico'){
+      if(customCfg && customCfg.tipo === 'fixo'){
+        // Para tipo fixo: procura qualquer referência cadastrada no texto do OCR
+        // Remove espaços e compara linha a linha também (OCR pode inserir quebras no meio da ref)
+        const textUp  = fullText.toUpperCase();
+        const flatUp  = textUp.replace(/\s+/g, '');
+        const fixoRefs = customCfg.fixoRefs || [];
+        for(const item of fixoRefs){
+          const refUp = item.ref.toUpperCase();
+          const refFlat = refUp.replace(/\s+/g, '');
+          if(textUp.includes(refUp) || flatUp.includes(refFlat)){
+            ocrParsed = { ref: item.ref, qty: item.qty, forn: ocrForn };
+            break;
+          }
+        }
+        if(!ocrParsed && !silent){
+          const listedRefs = fixoRefs.map(r=>r.ref).join(', ');
+          setSt('Nenhuma ref encontrada. Esperadas: '+listedRefs,'err');
+        }
+      } else if(customCfg && customCfg.tipo !== 'generico'){
         // Tenta o texto completo e cada linha individualmente
         const candidates = [fullText, ...fullText.split('\n').map(l=>l.trim()).filter(Boolean)];
         for(const seg of candidates){
@@ -2391,8 +2823,8 @@ async function ocrCapture(silent=false){
           if(c && c.ref){ ocrParsed = { ref: c.ref, qty: c.qty, forn: ocrForn }; break; }
         }
       }
-      // Fallback genérico
-      if(!ocrParsed){
+      // Fallback generico (so para nao-fixo)
+      if(!ocrParsed && (!customCfg || customCfg.tipo !== 'fixo')){
         const g = parseGeneric(fullText);
         if(g && g.ref && g.ref !== fullText.trim()) ocrParsed = { ref: g.ref, qty: g.qty, forn: ocrForn };
       }
@@ -2407,14 +2839,26 @@ async function ocrCapture(silent=false){
       _ocrCountdownStop();
       setSt('Etiqueta lida — confirme ou cancele','ok');
       if(!silent) toast(`${ocrParsed.forn}: ${ocrParsed.ref} · ${ocrParsed.qty} pç`);
+      doBip();
       doFlash();
     } else {
       const hasText = fullText.trim().length > 5;
+      // Mensagem específica por tipo
+      const customCfg2 = fornFindByName(ocrForn);
+      let waitMsg = hasText ? `⟳ Aguardando padrão ${ocrForn}…` : '⟳ Aguardando etiqueta…';
+      if(customCfg2 && customCfg2.tipo === 'fixo' && hasText){
+        waitMsg = `⟳ Texto lido, ref não encontrada…`;
+      }
       if(!silent){
-        setSt(`Padrão "${ocrForn}" não detectado — centralize a etiqueta`,'err');
-        toast('Centralize a etiqueta e tente novamente',true);
+        if(customCfg2 && customCfg2.tipo === 'fixo'){
+          // já setou mensagem específica acima; só mostrar toast se ainda não setou
+          toast('Referência não encontrada na etiqueta',true);
+        } else {
+          setSt(`Padrão "${ocrForn}" não detectado — centralize a etiqueta`,'err');
+          toast('Centralize a etiqueta e tente novamente',true);
+        }
       } else {
-        setSt(hasText?`⟳ Aguardando padrão ${ocrForn}…`:'⟳ Aguardando etiqueta…','wa');
+        setSt(waitMsg,'wa');
       }
     }
   }catch(e){
@@ -2630,6 +3074,7 @@ function handleQR(raw){
     }
   }
   pending={...parsed,raw,time:new Date().toLocaleTimeString('pt-BR')};
+  doBip();
   showResult(pending);
 }
 
@@ -2728,6 +3173,7 @@ function addItem(item){
   toast(g.scans>1
     ? `${item.ref}  +${item.qty} pç${volInfo}  →  Total: ${g.qty} pç`
     : `${item.ref}  ·  ${item.qty} pç${volInfo}`);
+  renderScanList();
 }
 
 function manualAdd(){
@@ -2743,7 +3189,93 @@ function manualAdd(){
 }
 
 function listaClear(){
-  items=[];grouped={};sessStateSave();updateDash();renderList();toast('Lista limpa');
+  items=[];grouped={};sessStateSave();updateDash();renderList();renderScanList();toast('Lista limpa');
+}
+
+/* ═══════════════════════════════════════════════
+   LISTA DE ITENS NA TELA DE SCAN
+═══════════════════════════════════════════════ */
+let _scanListVisible = true;
+
+function toggleScanList(){
+  _scanListVisible = !_scanListVisible;
+  const body = document.getElementById('scan-list-body');
+  const lbl  = document.getElementById('scan-list-toggle-lbl');
+  if(body) body.classList.toggle('collapsed', !_scanListVisible);
+  if(lbl)  lbl.textContent = _scanListVisible ? '▲ Ocultar' : '▼ Mostrar';
+}
+
+function renderScanList(){
+  const card = document.getElementById('card-scan-list');
+  const el   = document.getElementById('scan-ilist');
+  const cnt  = document.getElementById('scan-list-count');
+  if(!card||!el) return;
+
+  const rows = Object.values(grouped).sort((a,b)=>(b.lastTs||0)-(a.lastTs||0));
+
+  if(!session || !rows.length){
+    card.style.display='none';
+    return;
+  }
+
+  card.style.display='block';
+
+  const tot = rows.reduce((s,r)=>s+r.qty,0);
+  if(cnt) cnt.textContent = rows.length + ' ref · ' + tot + ' pç';
+
+  el.innerHTML='';
+  rows.forEach(r=>{
+    const div=document.createElement('div');
+    div.className='ic'+(r.scans>1?' multi':'');
+    div.style.cssText='animation:none';
+
+    const info=document.createElement('div');
+    info.style.cssText='flex:1;min-width:0';
+
+    const ref=document.createElement('div');
+    ref.className='iref'; ref.textContent=r.ref;
+
+    const meta=document.createElement('div');
+    meta.className='imeta';
+    meta.textContent=(r.forn||'');
+    if(r.scans>1){
+      const tag=document.createElement('span');
+      tag.className='itag'; tag.textContent=r.scans+' leituras';
+      meta.append(' · ', tag);
+    }
+    info.append(ref, meta);
+
+    const qty=document.createElement('div');
+    qty.className='iqty'; qty.textContent=r.qty;
+
+    // Botão editar
+    const editBtn=document.createElement('button');
+    editBtn.className='idel';
+    editBtn.textContent='✎';
+    editBtn.style.cssText='color:var(--cy);font-size:.9rem';
+    editBtn.setAttribute('aria-label','Editar '+r.ref);
+    editBtn.onclick=()=>openEdit(r.ref);
+
+    // Botão excluir
+    const del=document.createElement('button');
+    del.className='idel'; del.textContent='✕';
+    del.setAttribute('aria-label','Remover '+r.ref);
+    del.onclick=()=>deleteScanRef(r.ref);
+
+    div.append(info, qty, editBtn, del);
+    el.appendChild(div);
+  });
+}
+
+function deleteScanRef(ref){
+  mc(`Remover "${ref}"`,`Todos os registros desta referência serão removidos.`,()=>{
+    items=items.filter(i=>i.ref!==ref);
+    delete grouped[ref];
+    sessStateSave();
+    updateDash();
+    renderScanList();
+    renderList();
+  });
 }
 
 function processManualQR(){
@@ -2786,6 +3318,7 @@ function editSave(){
   sessStateSave();
   editClose();
   renderList();
+  renderScanList();
   updateDash();
   toast('Item atualizado');
 }
@@ -3178,6 +3711,56 @@ function doFlash(){
   const f=document.getElementById('flash');
   f.classList.add('on');setTimeout(()=>f.classList.remove('on'),140);
 }
+
+/* ═══════════════════════════════════════════════
+   BIP SONORO + VIBRAÇÃO AO ESCANEAR
+═══════════════════════════════════════════════ */
+let _audioCtx = null;
+function _getAudioCtx(){
+  if(!_audioCtx){
+    try{ _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
+  }
+  // Resumir se suspenso (política autoplay)
+  if(_audioCtx && _audioCtx.state === 'suspended'){
+    _audioCtx.resume().catch(()=>{});
+  }
+  return _audioCtx;
+}
+
+function doBip(){
+  // Vibração (Android/alguns iOS)
+  try{
+    if(navigator.vibrate){ navigator.vibrate([60]); }
+  }catch(e){}
+
+  // Bip sonoro via Web Audio API
+  try{
+    const ctx = _getAudioCtx();
+    if(!ctx) return;
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.12);
+  }catch(e){}
+}
+
+/* ═══════════════════════════════════════════════
+   EXPORTAR DO DASHBOARD (botão rápido)
+═══════════════════════════════════════════════ */
+function dashExport(){
+  if(!session || !Object.keys(grouped).length){
+    toast('Nenhuma sessão ativa para exportar', true);
+    return;
+  }
+  exportSessAtiva();
+}
 function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 const e=h;
 function ea(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
@@ -3186,6 +3769,15 @@ function ea(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
    INIT
 ═══════════════════════════════════════════════ */
 sessStateLoad();
+// Inicializar AudioContext no primeiro toque do usuário (requisito de autoplay)
+document.addEventListener('touchstart', function _initAudio(){
+  _getAudioCtx();
+  document.removeEventListener('touchstart', _initAudio);
+}, {once: true, passive: true});
+document.addEventListener('click', function _initAudioClick(){
+  _getAudioCtx();
+  document.removeEventListener('click', _initAudioClick);
+}, {once: true});
 if(session){
   document.getElementById('card-sess').style.display   = 'none';
   document.getElementById('card-cam').style.display    = 'block';
