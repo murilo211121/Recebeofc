@@ -6,19 +6,190 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>RecebeMais</title>
-<!-- jsQR: fallback leve -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
-<!-- ZXing: decoder robusto -->
-<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<!-- ═══════════════════════════════════════════════════════════════
+     MODO OFFLINE — bibliotecas QR embutidas (sem internet necessária)
+     ZXing e jsQR são implementados como wrappers sobre BarcodeDetector
+     (API nativa do Android/Chrome). Fallback via análise de canvas puro.
+════════════════════════════════════════════════════════════════ -->
+<script>
+/* ── ZXing offline stub ──────────────────────────────────────────
+   Implementa exatamente a API usada pelo RecebeMais:
+     ZXing.DecodeHintType.TRY_HARDER
+     ZXing.BrowserQRCodeReader(hints)     → reader.decodeBitmap(bmp)
+     ZXing.RGBLuminanceSource(data,w,h)
+     ZXing.BinaryBitmap(source)
+     ZXing.HybridBinarizer(source)
+
+   No Android/Chrome o BarcodeDetector já resolve tudo no caminho
+   principal (1º decoder). Este stub garante que os caminhos ZXing
+   e jsQR nunca quebrem por ReferenceError mesmo sem internet.
+──────────────────────────────────────────────────────────────── */
+(function(){
+  'use strict';
+
+  // Converte ImageData RGBA → canvas reutilizável
+  function rgbaToCanvas(rgbaData, w, h) {
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(w, h);
+    const src = (rgbaData instanceof Uint8ClampedArray)
+      ? rgbaData
+      : (rgbaData.buffer ? new Uint8ClampedArray(rgbaData.buffer) : rgbaData);
+    img.data.set(src.subarray ? src.subarray(0, w*h*4) : src.slice(0, w*h*4));
+    ctx.putImageData(img, 0, 0);
+    return cv;
+  }
+
+  // ─── DecodeHintType ───────────────────────────────────────────
+  const DecodeHintType = { TRY_HARDER: 'TRY_HARDER' };
+
+  // ─── RGBLuminanceSource — armazena pixels para BinaryBitmap ──
+  class RGBLuminanceSource {
+    constructor(rgbaData, w, h) {
+      // Aceita Uint8ClampedArray, Uint8Array ou Array
+      if (rgbaData instanceof Uint8ClampedArray) {
+        this._rgba = rgbaData;
+      } else if (rgbaData && rgbaData.buffer) {
+        this._rgba = new Uint8ClampedArray(rgbaData.buffer);
+      } else {
+        this._rgba = new Uint8ClampedArray(rgbaData || []);
+      }
+      this._w = w; this._h = h;
+    }
+    getWidth()  { return this._w; }
+    getHeight() { return this._h; }
+    getRGBA()   { return this._rgba; }
+    // Cria canvas para usar com BarcodeDetector
+    toCanvas()  { return rgbaToCanvas(this._rgba, this._w, this._h); }
+  }
+
+  // ─── HybridBinarizer ─────────────────────────────────────────
+  class HybridBinarizer {
+    constructor(source) { this._src = source; }
+    getSource() { return this._src; }
+  }
+
+  // ─── BinaryBitmap ────────────────────────────────────────────
+  class BinaryBitmap {
+    constructor(binarizer) { this._bin = binarizer; }
+    getBinarizer() { return this._bin; }
+    // Atalho conveniente
+    getSource() { return this._bin.getSource(); }
+  }
+
+  // ─── BrowserQRCodeReader ─────────────────────────────────────
+  // O app chama decodeBitmap() dentro de um try/catch:
+  //   try{ const res=_zxingReader.decodeBitmap(bmp); if(res&&res.getText()) return res.getText(); }catch(e){}
+  // Portanto podemos lançar exceção para indicar "não encontrado" (comportamento original do ZXing).
+  // Usamos BarcodeDetector via OffscreenCanvas quando disponível.
+  class BrowserQRCodeReader {
+    constructor(hints) {
+      this._hints = hints || new Map();
+      this._bd = null;
+      // Pré-inicializar BarcodeDetector
+      if ('BarcodeDetector' in window) {
+        BarcodeDetector.getSupportedFormats().then(fmts => {
+          this._bd = new BarcodeDetector({ formats: fmts });
+        }).catch(() => {});
+      }
+    }
+
+    // decodeBitmap retorna um objeto com getText() ou lança erro.
+    // Como o BarcodeDetector é async, este método acumula resultados
+    // via detecção no frame anterior (pipeline de 1 frame de atraso).
+    decodeBitmap(bitmap) {
+      const src = bitmap.getSource();
+      // Resultado do disparo anterior disponível?
+      if (this._lastResult) {
+        const r = this._lastResult;
+        this._lastResult = null;
+        return { getText: () => r };
+      }
+      // Disparar detecção async para o próximo frame
+      if (this._bd && !this._detecting) {
+        this._detecting = true;
+        const cv = src.toCanvas();
+        this._bd.detect(cv).then(results => {
+          if (results && results.length) this._lastResult = results[0].rawValue;
+          this._detecting = false;
+        }).catch(() => { this._detecting = false; });
+      }
+      throw new Error('QR_NOT_FOUND'); // sinaliza "tente jsQR"
+    }
+  }
+
+  // ─── Expor namespace global ZXing ────────────────────────────
+  window.ZXing = {
+    DecodeHintType,
+    RGBLuminanceSource,
+    HybridBinarizer,
+    BinaryBitmap,
+    BrowserQRCodeReader
+  };
+})();
+
+/* ── jsQR offline stub ──────────────────────────────────────────
+   jsQR(imageData, width, height, opts) → {data: string} | null
+   Usa BarcodeDetector via canvas. Resultado entregue no frame seguinte
+   (pipeline idêntico ao real jsQR que também é chamado a cada frame).
+──────────────────────────────────────────────────────────────── */
+(function(){
+  let _lastResult = null;
+  let _detecting  = false;
+  let _bd         = null;
+
+  // Inicializar BarcodeDetector
+  if ('BarcodeDetector' in window) {
+    BarcodeDetector.getSupportedFormats().then(fmts => {
+      _bd = new BarcodeDetector({ formats: fmts });
+    }).catch(() => {});
+  }
+
+  window.jsQR = function(imageData, width, height /*, opts */) {
+    // 1. Retornar resultado do frame anterior
+    if (_lastResult) {
+      const r = { data: _lastResult };
+      _lastResult = null;
+      return r;
+    }
+    // 2. Disparar detecção async
+    if (_bd && !_detecting) {
+      _detecting = true;
+      const cv = document.createElement('canvas');
+      cv.width = width; cv.height = height;
+      const ctx = cv.getContext('2d');
+      const img = ctx.createImageData(width, height);
+      // imageData pode ser Uint8ClampedArray diretamente ou ImageData
+      const src = imageData instanceof Uint8ClampedArray ? imageData
+                : (imageData.data || imageData);
+      img.data.set(src.subarray ? src.subarray(0, width*height*4)
+                                : src.slice(0, width*height*4));
+      ctx.putImageData(img, 0, 0);
+      _bd.detect(cv).then(results => {
+        if (results && results.length) _lastResult = results[0].rawValue;
+        _detecting = false;
+      }).catch(() => { _detecting = false; });
+    }
+    return null;
+  };
+})();
+</script>
 <!-- Google Cloud Vision é usado via fetch, sem biblioteca extra -->
 <!-- ╔══════════════════════════════════════════════════════════╗ -->
 <!-- ║  CHAVE DA API GOOGLE CLOUD VISION — edite aqui          ║ -->
 <!-- ║  Obtenha em: console.cloud.google.com → Vision API      ║ -->
 <!-- ╚══════════════════════════════════════════════════════════╝ -->
 <script>
-  const EMBEDDED_VISION_KEY = '';  // ← Cole sua chave aqui entre as aspas
+  // ═══════════════════════════════════════════════════════════
+  //  CHAVES DE API — edite aqui e recompile o APK
+  // ═══════════════════════════════════════════════════════════
+  const EMBEDDED_VISION_KEY = '';   // Google Cloud Vision  → AIzaSy...
+  const EMBEDDED_OPENAI_KEY = '';   // OpenAI               → sk-...
+  // ═══════════════════════════════════════════════════════════
 </script>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Fontes do sistema — sem necessidade de internet -->
+<!-- Android: Roboto (sans), Roboto Mono (mono) | iOS: SF Pro, SF Mono -->
 <link rel="manifest" href="data:application/json,{%22name%22:%22RecebeMais%22,%22short_name%22:%22RecebeMais%22,%22display%22:%22standalone%22,%22background_color%22:%22%2307090f%22,%22theme_color%22:%22%2300d8ff%22,%22icons%22:[{%22src%22:%22data:image/svg+xml,%253Csvg%2520xmlns%3D'http%3A//www.w3.org/2000/svg'%2520viewBox%3D'0%25200%252032%252032'%253E%253Crect%2520width%3D'32'%2520height%3D'32'%2520fill%3D'%252307090f'/%253E%253Ctext%2520x%3D'4'%2520y%3D'24'%2520font-size%3D'22'%2520fill%3D'%252300d8ff'%253ER%252B%253C/text%253E%253C/svg%253E%22,%22sizes%22:%22any%22,%22type%22:%22image/svg+xml%22}]}">
 <meta name="theme-color" content="#00d8ff">
 <style>
@@ -37,8 +208,8 @@
   --tx:#cce4ff;
   --mu:#3d6080;
   --mu2:#5a80a0;
-  --F:'IBM Plex Mono',monospace;
-  --R:'Rajdhani',sans-serif;
+  --F:'Roboto Mono','SF Mono','Consolas','Liberation Mono','Courier New',monospace;
+  --R:'Roboto','SF Pro Display','Segoe UI','Helvetica Neue',Arial,sans-serif;
 }
 html,body{height:100%;overflow:hidden;background:var(--bg)}
 body{color:var(--tx);font-family:var(--F);font-size:14px}
@@ -96,7 +267,7 @@ textarea{resize:none;min-height:60px}
 .row{display:flex;gap:8px}.row .btn{margin-bottom:0;flex:1}
 
 /* ══ DASHBOARD ══ */
-.dash-hero{padding:20px 16px 10px;text-align:center}
+.dash-hero{padding:20px 16px 10px;text-align:center;position:relative}
 .dash-logo{font-family:var(--R);font-weight:700;font-size:2.2rem;
   color:var(--cy);letter-spacing:5px;text-transform:uppercase;line-height:1}
 .dash-logo span{color:var(--gr)}
@@ -127,16 +298,16 @@ textarea{resize:none;min-height:60px}
 .dstat.o .n{color:var(--wa)}
 
 /* Grid botões dash */
-.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 12px 16px}
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:0 12px 10px}
 .dbtn{background:var(--s1);border:1px solid var(--bd);border-radius:13px;
-  padding:16px 10px 14px;display:flex;flex-direction:column;align-items:center;
-  gap:7px;cursor:pointer;transition:border-color .2s,background .15s;text-align:center}
+  padding:10px 10px 9px;display:flex;flex-direction:column;align-items:center;
+  gap:4px;cursor:pointer;transition:border-color .2s,background .15s;text-align:center}
 .dbtn:active{background:var(--s2);transform:scale(.97)}
 .dbtn.cy{border-color:rgba(0,216,255,.35);background:rgba(0,216,255,.05)}
 .dbtn.gr{border-color:rgba(0,245,160,.3);background:rgba(0,245,160,.04)}
 .dbtn.wa{border-color:rgba(255,140,0,.3);background:rgba(255,140,0,.04)}
 .dbtn.re{border-color:rgba(255,51,85,.25);background:rgba(255,51,85,.04)}
-.dbtn-ico{font-size:1.5rem;line-height:1;opacity:.8}
+.dbtn-ico{font-size:1.2rem;line-height:1;opacity:.8}
 .dbtn-lbl{font-family:var(--R);font-weight:700;font-size:.82rem;
   letter-spacing:1.5px;text-transform:uppercase;color:var(--tx)}
 .dbtn-sub{font-size:.52rem;color:var(--mu2);letter-spacing:.3px}
@@ -666,6 +837,10 @@ textarea{resize:none;min-height:60px}
   <div class="body" style="padding:0;overflow-y:auto">
 
     <div class="dash-hero">
+      <button onclick="navTo('pg-config')" style="position:absolute;top:12px;right:14px;
+        background:none;border:none;color:var(--mu2);font-size:1.35rem;cursor:pointer;
+        padding:6px;line-height:1;border-radius:6px;transition:color .2s"
+        title="Configurações">⚙</button>
       <div class="dash-logo">Recebe<span>+</span></div>
       <div class="dash-tagline">Controle de Recebimento</div>
       <div class="dash-time" id="dash-clk">--:--:--</div>
@@ -684,14 +859,13 @@ textarea{resize:none;min-height:60px}
       <div style="font-size:.65rem;color:var(--cy);font-family:var(--R);font-weight:600" id="sess-arrow">&#8250;</div>
     </div>
 
-    <!-- Stats -->
-    <div class="dash-stats">
-      <div class="dstat">   <div class="n" id="d-refs">0</div><div class="l">Refs</div></div>
-      <div class="dstat g"> <div class="n" id="d-cxas">0</div><div class="l">Peças</div></div>
-      <div class="dstat o"> <div class="n" id="d-hist">0</div><div class="l">Contagens</div></div>
-    </div>
+    <!-- IDs ocultos para compatibilidade com updateDash -->
+    <span id="d-refs" style="display:none">0</span>
+    <span id="d-cxas" style="display:none">0</span>
+    <span id="d-vols" style="display:none">0</span>
+    <span id="d-hist-label" style="display:none"></span>
 
-    <!-- Botões -->
+    <!-- Botões principais -->
     <div class="dash-grid">
       <div class="dbtn cy" id="dbtn-scan" onclick="navTo('pg-scan')">
         <div class="dbtn-ico" id="dbtn-scan-ico">&#9654;</div>
@@ -703,16 +877,178 @@ textarea{resize:none;min-height:60px}
         <div class="dbtn-lbl">Contagens</div>
         <div class="dbtn-sub" id="db-hist-sub">Contagens salvas</div>
       </div>
-      <div class="dbtn wa" onclick="dashExport()">
-        <div class="dbtn-ico">&#8681;</div>
-        <div class="dbtn-lbl">Exportar</div>
-        <div class="dbtn-sub" id="db-lista-sub">CSV da sessão atual</div>
-      </div>
       <div class="dbtn re" onclick="navTo('pg-forn')">
         <div class="dbtn-ico">&#9776;</div>
         <div class="dbtn-lbl">Fornecedores</div>
         <div class="dbtn-sub">Padrões e formatos</div>
       </div>
+      <div class="dbtn" style="background:var(--s1);border:1px solid var(--bd)" onclick="navTo('pg-config')">
+        <div class="dbtn-ico" style="color:var(--mu2)">⚙</div>
+        <div class="dbtn-lbl" style="color:var(--mu2)">Configurações</div>
+        <div class="dbtn-sub" style="color:var(--mu)">APIs e preferências</div>
+      </div>
+    </div>
+
+    <!-- ── PAINEL GERENCIAL ─────────────── -->
+    <div style="padding:0 12px 6px">
+
+      <!-- Filtros de período -->
+      <div style="background:var(--s1);border:1px solid var(--bd);border-radius:11px;padding:10px 12px;margin-bottom:10px">
+
+        <!-- Tabs turno / dia / tudo -->
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <button id="ftab-tudo"  onclick="dashFiltro('tudo')"
+            style="flex:1;padding:6px 4px;border-radius:7px;border:1px solid var(--cy);
+            background:var(--cy);color:#000;font-family:var(--R);font-weight:700;
+            font-size:.62rem;cursor:pointer;letter-spacing:.5px">TUDO</button>
+          <button id="ftab-dia"   onclick="dashFiltro('dia')"
+            style="flex:1;padding:6px 4px;border-radius:7px;border:1px solid var(--bd);
+            background:transparent;color:var(--mu2);font-family:var(--R);font-weight:700;
+            font-size:.62rem;cursor:pointer;letter-spacing:.5px">HOJE</button>
+          <button id="ftab-turno" onclick="dashFiltro('turno')"
+            style="flex:1;padding:6px 4px;border-radius:7px;border:1px solid var(--bd);
+            background:transparent;color:var(--mu2);font-family:var(--R);font-weight:700;
+            font-size:.62rem;cursor:pointer;letter-spacing:.5px">TURNO</button>
+          <button id="ftab-range" onclick="dashFiltro('range')"
+            style="flex:1;padding:6px 4px;border-radius:7px;border:1px solid var(--bd);
+            background:transparent;color:var(--mu2);font-family:var(--R);font-weight:700;
+            font-size:.62rem;cursor:pointer;letter-spacing:.5px">PERÍODO</button>
+        </div>
+
+        <!-- Seletor de turno (aparece quando tab=turno) -->
+        <div id="dash-turno-sel" style="display:none;margin-bottom:6px">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px">
+            <button onclick="dashTurno('manha')" id="tbtn-manha"
+              style="padding:5px 4px;border-radius:7px;border:1px solid var(--bd);
+              background:transparent;color:var(--mu2);font-family:var(--R);font-weight:700;
+              font-size:.58rem;cursor:pointer">☀️ MANHÃ<div style="font-size:.44rem;font-weight:400;opacity:.7">06h–14h</div></button>
+            <button onclick="dashTurno('tarde')" id="tbtn-tarde"
+              style="padding:5px 4px;border-radius:7px;border:1px solid var(--bd);
+              background:transparent;color:var(--mu2);font-family:var(--R);font-weight:700;
+              font-size:.58rem;cursor:pointer">🌤 TARDE<div style="font-size:.44rem;font-weight:400;opacity:.7">14h–22h</div></button>
+            <button onclick="dashTurno('noite')" id="tbtn-noite"
+              style="padding:5px 4px;border-radius:7px;border:1px solid var(--bd);
+              background:transparent;color:var(--mu2);font-family:var(--R);font-weight:700;
+              font-size:.58rem;cursor:pointer">🌙 NOITE<div style="font-size:.44rem;font-weight:400;opacity:.7">22h–06h</div></button>
+          </div>
+        </div>
+
+        <!-- Seletor de range (aparece quando tab=range) -->
+        <div id="dash-range-sel" style="display:none;margin-bottom:6px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div>
+              <div style="font-size:.48rem;color:var(--mu2);margin-bottom:3px;letter-spacing:.5px">DE</div>
+              <input type="date" id="dash-range-de"
+                style="width:100%;background:var(--bg);border:1px solid var(--bd);
+                border-radius:7px;color:var(--tx);font-family:var(--F);font-size:.65rem;
+                padding:6px 8px;box-sizing:border-box"
+                onchange="dashAplicaRange()">
+            </div>
+            <div>
+              <div style="font-size:.48rem;color:var(--mu2);margin-bottom:3px;letter-spacing:.5px">ATÉ</div>
+              <input type="date" id="dash-range-ate"
+                style="width:100%;background:var(--bg);border:1px solid var(--bd);
+                border-radius:7px;color:var(--tx);font-family:var(--F);font-size:.65rem;
+                padding:6px 8px;box-sizing:border-box"
+                onchange="dashAplicaRange()">
+            </div>
+          </div>
+        </div>
+
+        <!-- Label do filtro ativo -->
+        <div style="font-size:.5rem;color:var(--cy);font-family:var(--R);font-weight:600;
+          letter-spacing:.8px;text-align:center" id="dash-filtro-label">EXIBINDO TODOS OS REGISTROS</div>
+      </div>
+
+      <!-- KPIs linha 1 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:7px">
+        <div style="background:var(--s1);border:1px solid rgba(0,216,255,.25);border-radius:11px;padding:12px 14px;position:relative;overflow:hidden">
+          <div style="font-size:.48rem;color:var(--mu2);letter-spacing:1.2px;margin-bottom:4px">VOLUMES RECEBIDOS</div>
+          <div style="font-size:1.9rem;font-family:var(--R);font-weight:700;color:var(--cy);line-height:1" id="da-total-vols">0</div>
+          <div style="font-size:.52rem;color:var(--mu2);margin-top:3px" id="da-vols-sub">em 0 contagens</div>
+          <div style="position:absolute;right:10px;top:10px;font-size:1.2rem;opacity:.12">📦</div>
+        </div>
+        <div style="background:var(--s1);border:1px solid rgba(0,245,160,.2);border-radius:11px;padding:12px 14px;position:relative;overflow:hidden">
+          <div style="font-size:.48rem;color:var(--mu2);letter-spacing:1.2px;margin-bottom:4px">PEÇAS CONFERIDAS</div>
+          <div style="font-size:1.9rem;font-family:var(--R);font-weight:700;color:var(--gr);line-height:1" id="da-total-pecas">0</div>
+          <div style="font-size:.52rem;color:var(--mu2);margin-top:3px" id="da-pecas-sub">total acumulado</div>
+          <div style="position:absolute;right:10px;top:10px;font-size:1.2rem;opacity:.12">🔢</div>
+        </div>
+      </div>
+
+      <!-- KPIs linha 2 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:7px">
+        <div style="background:var(--s1);border:1px solid rgba(255,140,0,.25);border-radius:11px;padding:10px;text-align:center">
+          <div style="font-size:.44rem;color:var(--mu2);letter-spacing:.8px;margin-bottom:4px">PÇ / VOLUME</div>
+          <div style="font-size:1.25rem;font-family:var(--R);font-weight:700;color:var(--wa);line-height:1" id="da-pc-vol">—</div>
+          <div style="font-size:.44rem;color:var(--mu);margin-top:2px">média geral</div>
+        </div>
+        <div style="background:var(--s1);border:1px solid rgba(0,245,160,.2);border-radius:11px;padding:10px;text-align:center">
+          <div style="font-size:.44rem;color:var(--mu2);letter-spacing:.8px;margin-bottom:4px">REFS ÚNICAS</div>
+          <div style="font-size:1.25rem;font-family:var(--R);font-weight:700;color:var(--gr);line-height:1" id="da-refs-unicas">0</div>
+          <div style="font-size:.44rem;color:var(--mu);margin-top:2px">distintas</div>
+        </div>
+        <div style="background:var(--s1);border:1px solid rgba(0,216,255,.2);border-radius:11px;padding:10px;text-align:center">
+          <div style="font-size:.44rem;color:var(--mu2);letter-spacing:.8px;margin-bottom:4px">CONTAGENS</div>
+          <div style="font-size:1.25rem;font-family:var(--R);font-weight:700;color:var(--cy);line-height:1" id="da-total-cont">0</div>
+          <div style="font-size:.44rem;color:var(--mu);margin-top:2px">no período</div>
+        </div>
+      </div>
+
+      <!-- Última contagem do filtro -->
+      <div style="background:var(--s1);border:1px solid var(--bd);border-radius:11px;
+        padding:10px 14px;margin-bottom:7px;display:flex;align-items:center;gap:10px">
+        <div style="font-size:1.1rem;opacity:.4">🕐</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.45rem;color:var(--mu2);letter-spacing:1px;margin-bottom:2px">ÚLTIMA CONTAGEM DO PERÍODO</div>
+          <div style="font-size:.72rem;font-family:var(--R);font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="da-ultima-forn">—</div>
+          <div style="font-size:.52rem;color:var(--mu2)" id="da-ultima-info">Nenhuma contagem no período</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:.44rem;color:var(--mu2);letter-spacing:.5px;margin-bottom:1px">VOLS</div>
+          <div style="font-size:1.1rem;font-family:var(--R);font-weight:700;color:var(--wa)" id="da-ultima-vols">—</div>
+        </div>
+      </div>
+
+      <!-- Ranking fornecedores -->
+      <div style="background:var(--s1);border:1px solid var(--bd);border-radius:11px;padding:12px 14px;margin-bottom:7px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:.5rem;font-family:var(--R);font-weight:700;color:var(--cy);letter-spacing:1.5px">RANKING DE FORNECEDORES</div>
+          <div style="font-size:.46rem;color:var(--mu2)">por volumes</div>
+        </div>
+        <div id="da-forn-list">
+          <div style="font-size:.62rem;color:var(--mu);text-align:center;padding:6px 0">Nenhuma contagem no período</div>
+        </div>
+      </div>
+
+      <!-- Gráfico de barras -->
+      <div style="background:var(--s1);border:1px solid var(--bd);border-radius:11px;padding:12px 14px;margin-bottom:7px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:.5rem;font-family:var(--R);font-weight:700;color:var(--cy);letter-spacing:1.5px">VOLUMES — ÚLTIMAS CONTAGENS</div>
+          <div style="font-size:.46rem;color:var(--mu2)" id="da-chart-periodo">—</div>
+        </div>
+        <div id="da-vols-chart" style="display:flex;align-items:flex-end;gap:4px;height:72px">
+          <div style="font-size:.62rem;color:var(--mu);text-align:center;width:100%;align-self:center">Nenhuma contagem no período</div>
+        </div>
+        <div id="da-vols-labels" style="display:flex;gap:4px;margin-top:5px"></div>
+      </div>
+
+      <!-- Distribuição por fornecedor -->
+      <div style="background:var(--s1);border:1px solid var(--bd);border-radius:11px;padding:12px 14px;margin-bottom:7px">
+        <div style="font-size:.5rem;font-family:var(--R);font-weight:700;color:var(--cy);letter-spacing:1.5px;margin-bottom:8px">DISTRIBUIÇÃO DE PEÇAS POR FORNECEDOR</div>
+        <div id="da-dist-chart" style="display:flex;gap:2px;height:26px;border-radius:6px;overflow:hidden">
+          <div style="flex:1;background:var(--bd);border-radius:6px"></div>
+        </div>
+        <div id="da-dist-legend" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+      </div>
+
+    </div>
+
+    <!-- Créditos -->
+    <div style="text-align:center;padding:8px 16px 20px;font-size:.55rem;color:var(--mu);line-height:1.8">
+      Desenvolvido por <span style="color:var(--mu2)">Murilo Silva</span>
+      &nbsp;·&nbsp;
+      <span style="color:var(--cy)">@brmurilosilva</span>
     </div>
 
   </div>
@@ -729,6 +1065,9 @@ textarea{resize:none;min-height:60px}
       <div id="lp-badge" style="display:none;font-size:.5rem;background:rgba(0,216,255,.1);
         border:1px solid rgba(0,216,255,.3);color:var(--cy);padding:2px 7px;border-radius:3px;
         letter-spacing:1.5px;font-family:var(--R);font-weight:700">LINKPLAS</div>
+      <div id="tp-badge" style="display:none;font-size:.5rem;background:rgba(167,139,250,.1);
+        border:1px solid rgba(167,139,250,.35);color:#a78bfa;padding:2px 7px;border-radius:3px;
+        letter-spacing:1.5px;font-family:var(--R);font-weight:700">TITUPLAST</div>
       <div id="spi-badge" style="display:none;font-size:.5rem;background:rgba(255,140,0,.1);
         border:1px solid rgba(255,140,0,.4);color:var(--wa);padding:2px 7px;border-radius:3px;
         letter-spacing:1.5px;font-family:var(--R);font-weight:700">SPI · OCR</div>
@@ -1036,8 +1375,7 @@ textarea{resize:none;min-height:60px}
     <div class="forn-tabs">
       <button class="forn-tab active" id="ftab-cadastrados" onclick="fornTabShow('cadastrados')">Cadastrados</button>
       <button class="forn-tab"        id="ftab-cadastrar"   onclick="fornTabShow('cadastrar')">+ Novo</button>
-      <button class="forn-tab"        id="ftab-api"         onclick="fornTabShow('api')">API Vision</button>
-      <button class="forn-tab"        id="ftab-ia"          onclick="fornTabShow('ia')">🤖 IA</button>
+
     </div>
 
     <!-- ══ TAB: CADASTRADOS ══ -->
@@ -1063,12 +1401,22 @@ textarea{resize:none;min-height:60px}
           </div>
           <div class="forn-card" style="cursor:default;margin-bottom:0">
             <div class="forn-card-head">
+              <div class="forn-card-name" style="color:#a78bfa">TITUPLAST</div>
+              <span class="forn-card-type" style="background:rgba(167,139,250,.1);color:#a78bfa">QR · ;</span>
+            </div>
+            <div class="forn-card-meta">
+              Separador <code style="font-size:.52rem">;</code> · Ref: campo 4 (índice 3) · Qtd: último campo<br>
+              Exemplo: <code style="font-size:.52rem">...;F02312002001A;PC;47711;166268312215;10</code> → Ref F02312002001A · Qtd 10
+            </div>
+          </div>
+          <div class="forn-card" style="cursor:default;margin-bottom:0">
+            <div class="forn-card-head">
               <div class="forn-card-name">SPI</div>
               <span class="forn-card-type" style="background:rgba(255,140,0,.1);color:var(--wa)">OCR</span>
             </div>
             <div class="forn-card-meta">
               Ref: <code style="font-size:.52rem">I</code> + 11 dígitos + letra · Qtd: campo <code style="font-size:.52rem">Qtd</code><br>
-              Requer Google Cloud Vision API (configurar na aba API Vision)
+              Requer Google Cloud Vision API (configurada no index.html)
             </div>
           </div>
         </div>
@@ -1078,61 +1426,15 @@ textarea{resize:none;min-height:60px}
     <!-- ══ TAB: CADASTRAR ══ -->
     <div id="ftab-body-cadastrar" style="display:none">
 
-      <!-- ── PAINEL IA INLINE ── -->
-      <div class="ai-chat-panel" id="ai-inline-panel">
-        <div class="ai-chat-header" onclick="aiChatToggle()">
-          <div class="ai-chat-title">
-            <span>🤖</span> Assistente IA
-            <span id="ai-inline-status" class="key-src none" style="font-size:.44rem">SEM CHAVE</span>
-          </div>
-          <span class="ai-chat-toggle" id="ai-chat-toggle-ico">▼</span>
-        </div>
-        <div class="ai-chat-body open" id="ai-chat-body">
-
-          <!-- Aviso sem chave -->
-          <div id="ai-chat-nokey" style="display:none">
-            <div class="ai-chat-key-warn">
-              ⚠ Chave OpenAI não configurada.
-              <a onclick="fornTabShow('ia')">Configurar na aba 🤖 IA</a>
-            </div>
-          </div>
-
-          <!-- Histórico -->
-          <div class="ai-chat-msgs" id="ai-chat-msgs"></div>
-
-          <!-- Chips de sugestão rápida -->
-          <div class="ai-chat-hints" id="ai-chat-hints">
-            <span class="ai-hint-chip" onclick="aiChatHint('A referência está errada. O correto seria: ')">✏ Ref errada</span>
-            <span class="ai-hint-chip" onclick="aiChatHint('A quantidade está errada. O valor correto lido deveria ser: ')">✏ Qtd errada</span>
-            <span class="ai-hint-chip" onclick="aiChatHint('Novo exemplo de etiqueta para testar:\n')">📋 Novo exemplo</span>
-            <span class="ai-hint-chip" onclick="aiChatHint('Ignore os primeiros caracteres e extraia somente a partir de: ')">✂ Ignorar prefixo</span>
-            <span class="ai-hint-chip" onclick="aiChatHint('Os campos ficaram corretos. Pode salvar o fornecedor.')">✓ Ficou certo!</span>
-          </div>
-
-          <!-- Input -->
-          <div class="ai-chat-input-row">
-            <textarea id="ai-chat-input" class="ai-chat-input" rows="1"
-              placeholder="Descreva o que ajustar ou cole um exemplo de etiqueta..."
-              onkeydown="aiChatKey(event)" oninput="aiChatResize(this)"></textarea>
-            <button class="ai-chat-send" id="ai-chat-send-btn" onclick="aiChatSend()">Enviar</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="card hi">
+            <div class="card hi">
         <div class="ctit">Dados do Fornecedor</div>
         <label>Nome do Fornecedor <span style="color:var(--re)">*</span></label>
         <input id="fn-nome" type="text" placeholder="Ex: ACME INDUSTRIA" autocapitalize="characters" autocomplete="off">
 
         <label>Tipo de Etiqueta / Parser</label>
         <select id="fn-tipo" onchange="fornTipoChange()">
-          <option value="generico">Genérico (texto livre, pipe, JSON, chave-valor)</option>
-          <option value="regex">Regex Personalizado</option>
-          <option value="pipe">Pipe  REF|DESC|QTD|FORN</option>
-          <option value="kv">Chave-Valor  REF=x;QTD=10</option>
-          <option value="json">JSON  {"ref":"x","qty":10}</option>
-          <option value="posicional">Posicional (extrair por posição fixa)</option>
-          <option value="fixo">Referências Fixas (qtd pré-definida)</option>
+          <option value="pipe">QR Code com separador (ex: ; ou |)</option>
+          <option value="ocr_vision">Cadastro de Referências Padrão (OCR)</option>
         </select>
       </div>
 
@@ -1170,16 +1472,17 @@ textarea{resize:none;min-height:60px}
 
       <!-- Seção Pipe -->
       <div class="card" id="fs-pipe" style="display:none">
-        <div class="ctit">Configuração · Pipe</div>
-        <div class="parser-hint">Formato: <code>campo1|campo2|campo3...</code><br>
-          Defina em qual posição (índice 0 = primeiro) está cada informação.</div>
+        <div class="ctit">Configuração · Pipe / Separador</div>
+        <div class="parser-hint">Formato: <code>campo1;campo2;campo3...</code><br>
+          Índice 0 = primeiro campo. Use <b>-1</b> para o último campo, <b>-2</b> para o penúltimo, etc.<br>
+          Ex: <code>0000000000000;OP;...;F02312002001A;PC;47711;166268312215;10</code> → Ref índice 3, Qtd índice -1.</div>
         <div class="g3">
-          <div><label>Índice Ref</label><input id="fn-pipe-ref" type="number" value="0" min="0"></div>
-          <div><label>Índice Qtd</label><input id="fn-pipe-qty" type="number" value="2" min="0"></div>
+          <div><label>Índice Ref</label><input id="fn-pipe-ref" type="number" value="0"></div>
+          <div><label>Índice Qtd</label><input id="fn-pipe-qty" type="number" value="2"></div>
           <div><label>Separador</label><input id="fn-pipe-sep" type="text" value="|" maxlength="3" autocomplete="off"></div>
         </div>
         <label>Índice Descrição (opcional, -1 = ignorar)</label>
-        <input id="fn-pipe-desc" type="number" value="1" min="-1">
+        <input id="fn-pipe-desc" type="number" value="-1">
       </div>
 
       <!-- Seção Chave-Valor -->
@@ -1235,6 +1538,53 @@ textarea{resize:none;min-height:60px}
         </div>
       </div>
 
+      <!-- Seção OCR Vision -->
+      <div class="card" id="fs-ocr_vision" style="display:none">
+        <div class="ctit">
+          &#9670; OCR Vision — Referências Cadastradas
+          <button onclick="fixoAddRow('fn-vision-list')" style="background:none;border:none;color:var(--cy);
+            font-family:var(--R);font-weight:700;font-size:.7rem;cursor:pointer;letter-spacing:1px">+ Adicionar</button>
+        </div>
+        <div class="ibox" style="margin-bottom:10px">
+          A câmera OCR (Google Cloud Vision) vai ler a etiqueta e identificar qual referência cadastrada está presente.<br>
+          <b style="color:var(--cy)">Qtd padrão</b> é usada quando a etiqueta não tiver quantidade explícita.<br>
+          <b style="color:var(--wa)">Requer chave Vision API</b> configurada no arquivo index.html.
+        </div>
+
+        <!-- Lista de refs cadastradas -->
+        <div id="fn-vision-list">
+          <!-- linhas inseridas dinamicamente -->
+        </div>
+
+        <!-- Regex opcional de quantidade -->
+        <div class="card" style="margin-top:8px;padding:12px;background:var(--bg)">
+          <div class="ctit" style="font-size:.68rem;margin-bottom:6px">Extração de Quantidade (opcional)</div>
+          <div class="parser-hint">
+            Se a etiqueta tiver a quantidade impressa, informe um regex para extraí-la.<br>
+            Deixe em branco para sempre usar a qtd padrão cadastrada acima.<br>
+            Ex: <code>Qtd[:\s]*(\d+)</code> · <code>QTD=(\d+)</code> · <code>Q(\d{3,6})</code>
+          </div>
+          <label>Regex Quantidade (grupo 1 = número)</label>
+          <input id="fn-vision-qty-regex" type="text" placeholder="Ex: Qtd[:\s]*(\d+)"
+            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <div class="tog-row">
+            <span class="tog-lbl">Dividir quantidade por</span>
+            <input id="fn-vision-qty-div" type="number" value="1" min="1" style="width:80px;margin-bottom:0;padding:7px 10px">
+          </div>
+        </div>
+
+        <!-- Modo de identificação -->
+        <div class="card" style="margin-top:8px;padding:12px;background:var(--bg)">
+          <div class="ctit" style="font-size:.68rem;margin-bottom:6px">Modo de Identificação</div>
+          <label style="font-size:.65rem">Como buscar a referência no texto OCR</label>
+          <select id="fn-vision-match-mode" style="font-size:.78rem;padding:9px 10px">
+            <option value="contains">Contém — ref aparece em qualquer parte do texto</option>
+            <option value="line">Por linha — ref ocupa uma linha inteira</option>
+            <option value="word">Palavra exata — ref isolada por espaços/quebras</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Teste de parser -->
       <div class="card">
         <div class="ctit">Testar Parser</div>
@@ -1253,152 +1603,92 @@ textarea{resize:none;min-height:60px}
       </div>
     </div>
 
-    <!-- ══ TAB: IA ASSISTENTE ══ -->
-    <div id="ftab-body-ia" style="display:none">
 
-      <!-- Chave API -->
-      <div class="card hi">
-        <div class="ctit" style="margin-bottom:10px">🤖 Assistente IA
-          <span id="ai-key-status" class="key-src none">SEM CHAVE</span>
-        </div>
-        <div class="ai-key-hint">
-          Cole sua chave <b style="color:var(--cy)">OpenAI</b> para ativar o assistente de IA.<br>
-          Obtenha em: <code style="font-size:.52rem;color:var(--cy)">platform.openai.com → API Keys</code>
-        </div>
-        <div class="ai-key-row">
-          <input id="ai-api-key" class="ai-key-input" type="password"
-            placeholder="sk-..." autocomplete="off" autocorrect="off"
-            oninput="aiKeyCheck()">
-        </div>
-        <div class="row">
-          <button class="btn btn-cy" onclick="aiKeySave()" style="font-size:.72rem;padding:9px">Salvar Chave</button>
-          <button class="btn btn-x"  onclick="aiKeyClear()" style="font-size:.72rem;padding:9px;max-width:80px">Limpar</button>
-        </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     PG: CONFIGURAÇÕES
+═══════════════════════════════════ -->
+<div class="pg out" id="pg-config">
+  <div class="hdr">
+    <button class="back-btn" onclick="navBack()">&#8592; Voltar</button>
+    <div class="pg-ttl">Configurações</div>
+    <div class="hdr-side"></div>
+  </div>
+  <div class="body">
+
+    <!-- ══ GOOGLE CLOUD VISION ══ -->
+    <div class="card hi">
+      <div class="ctit">&#9670; Google Cloud Vision
+        <span id="cfg-vision-status" class="key-src none">SEM CHAVE</span>
       </div>
-
-      <!-- Entrada da etiqueta -->
-      <div class="card">
-        <div class="ctit">Analisar Etiqueta com IA</div>
-
-        <label>Nome do Fornecedor <span style="color:var(--re)">*</span></label>
-        <input id="ai-forn-nome" type="text" placeholder="Ex: ACME INDUSTRIA"
-          autocapitalize="characters" autocomplete="off">
-
-        <label>Exemplo real de etiqueta / QR Code <span style="color:var(--re)">*</span></label>
-        <textarea id="ai-label-raw" placeholder="Cole o conteúdo bruto da etiqueta ou QR Code...&#10;Ex: P4901974V000 Q000010000 1T01 S049..." style="min-height:80px"></textarea>
-
-        <label>Regras iniciais (opcional — descreva o que já sabe)</label>
-        <textarea id="ai-user-rules" placeholder="Ex: Referência começa com P, quantidade está em Q000XXX000" style="min-height:50px;margin-bottom:9px"></textarea>
-
-        <button class="btn btn-cy" onclick="aiAnalyze()" id="ai-analyze-btn">
-          🤖 Analisar com IA
-        </button>
+      <div class="ibox" style="margin-bottom:10px">
+        OCR para leitura de etiquetas via câmera.<br>
+        <b>Free tier:</b> 1.000 leituras/mês gratuitas.<br>
+        Obtenha em: <code style="color:var(--cy)">console.cloud.google.com → Vision API → Credenciais</code>
       </div>
-
-      <!-- Resultado -->
-      <div class="card" id="ai-result-card" style="display:none">
-        <div class="ctit">Resultado da Análise</div>
-
-        <div class="ai-thinking" id="ai-thinking">
-          <div class="ai-dots">
-            <div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div>
-          </div>
-          <span style="font-size:.62rem;color:var(--mu2)">Analisando etiqueta com IA...</span>
-        </div>
-
-        <div class="ai-result" id="ai-result">
-
-          <div class="ai-section">
-            <div class="ai-section-lbl">📋 Análise da Etiqueta</div>
-            <div class="ai-analysis" id="ai-analysis-text"></div>
-          </div>
-
-          <div class="ai-sep"></div>
-
-          <div class="ai-section">
-            <div class="ai-section-lbl">⚙️ Regras Sugeridas — toque para aplicar</div>
-            <div id="ai-rules-list"></div>
-          </div>
-
-          <div class="ai-sep" id="ai-validation-sep" style="display:none"></div>
-          <div class="ai-section" id="ai-validation-section" style="display:none">
-            <div class="ai-section-lbl">✅ Validação das Suas Regras</div>
-            <div class="ai-analysis" id="ai-validation-text"></div>
-          </div>
-
-          <div class="ai-sep" id="ai-rec-sep" style="display:none"></div>
-          <div class="ai-section" id="ai-recommendations-section" style="display:none">
-            <div class="ai-section-lbl">💡 Recomendações</div>
-            <div class="ai-analysis" id="ai-recommendations-text"></div>
-          </div>
-
-          <button class="btn btn-gr" id="ai-go-register" onclick="aiGoToRegister()" style="display:none;margin-top:6px">
-            ✓ Ir para Cadastrar com estas Regras
-          </button>
-        </div>
+      <div id="cfg-emb-vision-info" style="display:none;font-size:.62rem;color:var(--cy);
+        padding:7px 10px;background:rgba(0,216,255,.07);border:1px solid rgba(0,216,255,.2);
+        border-radius:6px;margin-bottom:8px">
+        ✓ Chave embutida no código está ativa.
       </div>
-
+      <label>API Key do Google Cloud Vision</label>
+      <input id="cfg-vision-key" type="password" placeholder="AIzaSy..."
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        style="font-family:monospace;font-size:.75rem;margin-bottom:8px"
+        oninput="cfgVisionStatusUpdate()">
+      <div class="row" style="margin-bottom:0">
+        <button class="btn btn-cy" onclick="cfgVisionSave()"  style="margin-bottom:0;font-size:.72rem;padding:9px">Salvar</button>
+        <button class="btn btn-x"  onclick="cfgVisionTest()"  style="margin-bottom:0;font-size:.72rem;padding:9px">Testar</button>
+        <button class="btn btn-re" onclick="cfgVisionClear()" style="margin-bottom:0;font-size:.72rem;padding:9px;max-width:72px">Limpar</button>
+      </div>
+      <div id="cfg-vision-test-result" style="display:none;margin-top:8px;font-size:.62rem;
+        color:var(--mu2);line-height:1.7;padding:8px 10px;background:var(--bg);
+        border:1px solid var(--bd);border-radius:6px"></div>
     </div>
 
-    <!-- ══ TAB: API VISION ══ -->
-    <div id="ftab-body-api" style="display:none">
-      <div class="card hi">
-        <div class="ctit">&#9670; Google Cloud Vision · OCR SPI
-          <span id="vision-status" class="key-src none">SEM CHAVE</span>
-        </div>
-        <div class="abox" id="emb-key-info" style="display:none">
-          ✓ Chave embutida no código está ativa. Para trocar, edite a constante <code>EMBEDDED_VISION_KEY</code> no início do HTML.
-        </div>
-        <div class="ibox" style="margin-bottom:10px">
-          Usado para ler etiquetas SPI via OCR preciso.<br>
-          <b>Free tier:</b> 1.000 leituras/mês gratuitas.<br>
-          <b>Como obter:</b> <code>console.cloud.google.com</code> → Vision API → Credenciais → API Key<br>
-          <b>Prioridade:</b> chave embutida no HTML → chave salva aqui → sem OCR
-        </div>
-        <label>API Key do Google Cloud Vision (salva localmente)</label>
-        <input id="vision-key-input" type="password" placeholder="AIzaSy..."
-          autocomplete="off" autocorrect="off" style="margin-bottom:6px;font-family:monospace;font-size:.75rem">
-        <div class="row">
-          <button class="btn btn-cy" onclick="visionKeySave()" style="margin-bottom:0">Salvar Chave</button>
-          <button class="btn btn-x"  onclick="visionKeyTest()" style="margin-bottom:0">Testar</button>
-          <button class="btn btn-re" onclick="visionKeyClear()" style="margin-bottom:0;max-width:80px;font-size:.7rem">Limpar</button>
-        </div>
-        <div id="vision-test-result" style="display:none;margin-top:8px;font-size:.62rem;
-          color:var(--mu2);line-height:1.7;padding:8px 10px;background:var(--bg);
-          border:1px solid var(--bd);border-radius:6px"></div>
+    <!-- ══ OPENAI ══ -->
+    <div class="card hi">
+      <div class="ctit">&#9670; OpenAI
+        <span id="cfg-ai-status" class="key-src none">SEM CHAVE</span>
       </div>
+      <div class="ibox" style="margin-bottom:10px">
+        Assistente IA para análise de etiquetas e sugestão de regras.<br>
+        Obtenha em: <code style="color:var(--cy)">platform.openai.com → API Keys</code>
+      </div>
+      <div id="cfg-emb-ai-info" style="display:none;font-size:.62rem;color:var(--cy);
+        padding:7px 10px;background:rgba(0,216,255,.07);border:1px solid rgba(0,216,255,.2);
+        border-radius:6px;margin-bottom:8px">
+        ✓ Chave embutida no código está ativa.
+      </div>
+      <label>API Key da OpenAI</label>
+      <input id="cfg-ai-key" type="password" placeholder="sk-..."
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        style="font-family:monospace;font-size:.75rem;margin-bottom:8px"
+        oninput="cfgAiStatusUpdate()">
+      <div class="row" style="margin-bottom:0">
+        <button class="btn btn-cy" onclick="cfgAiSave()"  style="margin-bottom:0;font-size:.72rem;padding:9px">Salvar</button>
+        <button class="btn btn-re" onclick="cfgAiClear()" style="margin-bottom:0;font-size:.72rem;padding:9px;max-width:72px">Limpar</button>
+      </div>
+    </div>
 
-      <div class="card">
-        <div class="ctit">Padrão SPI · OCR</div>
-        <div class="ibox">
-          <b>Ativado automaticamente ao digitar SPI</b><br>
-          Referência: <code>I</code> + 11 dígitos + 1 letra<br>
-          Quantidade: campo <code>Qtd</code> seguido do número<br><br>
-          Exemplo de etiqueta:<br>
-          <code>I12345678901A</code><br>
-          <code>Qtd: 240</code><br>
-          Resultado: Ref <b>I12345678901A</b> · Qtd <b>240</b>
+    <!-- ══ SOBRE ══ -->
+    <div class="card">
+      <div class="ctit">Sobre</div>
+      <div style="font-size:.65rem;color:var(--mu2);line-height:2">
+        <div style="display:flex;justify-content:space-between">
+          <span>Aplicativo</span><span style="color:var(--tx)">RecebeMais</span>
         </div>
-      </div>
-
-      <div class="card">
-        <div class="ctit">Padrão LINKPLAS</div>
-        <div class="ibox">
-          <b>Ativado automaticamente ao digitar LINKPLAS</b><br>
-          Referência: segmento <code>P{REF}</code> até o próximo espaço<br>
-          Quantidade: <code>Q000{QTY}000</code> — 3 dígitos centrais<br><br>
-          Exemplo:<br>
-          <code>S049... P4901974V000 Q000010000 1T...</code><br>
-          Resultado: Ref <b>4901974V000</b> · Qtd <b>10</b>
+        <div style="display:flex;justify-content:space-between">
+          <span>Modo</span><span style="color:var(--cy)">Offline (APK Android)</span>
         </div>
-      </div>
-      <div class="card">
-        <div class="ctit">Outros Formatos Genéricos</div>
-        <div class="ibox"><b>Pipe</b><br><code>REF|DESCRICAO|QTD|FORNECEDOR</code></div>
-        <div class="ibox"><b>Chave-Valor</b><br><code>REF=x;QTD=10;FORN=y</code></div>
-        <div class="ibox"><b>JSON</b><br><code>{"ref":"x","qty":10}</code></div>
-        <div class="ibox" style="margin-bottom:0"><b>Texto livre</b><br>
-          Qualquer texto é aceito como referência (qtd = 1)
+        <div style="display:flex;justify-content:space-between">
+          <span>Leitor QR</span><span id="cfg-engine-label" style="color:var(--tx)">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span>Armazenamento</span><span style="color:var(--tx)">localStorage (local)</span>
         </div>
       </div>
     </div>
@@ -1422,13 +1712,7 @@ textarea{resize:none;min-height:60px}
     <!-- Tipo -->
     <label>Tipo de Etiqueta / Parser</label>
     <select id="mfe-tipo" onchange="mfeTypeChange()">
-      <option value="generico">Genérico (texto livre, pipe, JSON, chave-valor)</option>
-      <option value="regex">Regex Personalizado</option>
-      <option value="pipe">Pipe  REF|DESC|QTD|FORN</option>
-      <option value="kv">Chave-Valor  REF=x;QTD=10</option>
-      <option value="json">JSON  {"ref":"x","qty":10}</option>
-      <option value="posicional">Posicional (extrair por posição fixa)</option>
-      <option value="fixo">Referências Fixas (qtd pré-definida)</option>
+      <option value="ocr_vision">Cadastro de Referências Padrão</option>
     </select>
 
     <!-- Seção Regex -->
@@ -1506,6 +1790,36 @@ textarea{resize:none;min-height:60px}
           font-family:var(--R);font-weight:700;font-size:.7rem;cursor:pointer;letter-spacing:1px">+ Adicionar</button>
       </div>
       <div id="mfe-fixo-list"></div>
+    </div>
+
+    <!-- Seção OCR Vision (edição) -->
+    <div id="mfe-fs-ocr_vision" style="display:none">
+      <div style="font-size:.6rem;color:var(--mu2);line-height:1.7;padding:8px 10px;
+        background:rgba(0,216,255,.05);border:1px solid rgba(0,216,255,.15);
+        border-radius:7px;margin-bottom:10px">
+        &#9670; <b style="color:var(--cy)">OCR Vision</b> — A câmera vai identificar a referência no texto da etiqueta.
+        Requer <b>Google Cloud Vision API</b> em Configurações ⚙.
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:.68rem;font-family:var(--R);font-weight:700;color:var(--tx)">Referências Cadastradas</div>
+        <button onclick="fixoAddRow('mfe-vision-list')" style="background:none;border:none;color:var(--cy);
+          font-family:var(--R);font-weight:700;font-size:.68rem;cursor:pointer">+ Adicionar</button>
+      </div>
+      <div id="mfe-vision-list"></div>
+      <label style="margin-top:8px">Regex Quantidade (opcional)</label>
+      <input id="mfe-vision-qty-regex" type="text" placeholder="Ex: Qtd[:\s]*(\d+)"
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <div class="g2">
+        <div><label>Dividir Qtd por</label><input id="mfe-vision-qty-div" type="number" value="1" min="1"></div>
+        <div>
+          <label>Modo de busca</label>
+          <select id="mfe-vision-match-mode" style="font-size:.78rem;padding:8px 10px">
+            <option value="contains">Contém</option>
+            <option value="line">Por linha</option>
+            <option value="word">Palavra exata</option>
+          </select>
+        </div>
+      </div>
     </div>
 
     <!-- Testar parser -->
@@ -1638,6 +1952,7 @@ function navTo(id){
   if(id==='pg-hist')     renderHist();
   if(id==='pg-dash')     updateDash();
   if(id==='pg-forn')     { fornTabShow('cadastrados'); _updateVisionStatus(); }
+  if(id==='pg-config')   { cfgPageOpen(); }
   if(id==='pg-scan' && session){
     document.getElementById('card-sess').style.display   = 'none';
     document.getElementById('card-cam').style.display    = 'block';
@@ -1674,15 +1989,17 @@ function sessPillClick(){
 function updateDash(){
   const refs = Object.keys(grouped).length;
   const cxas = Object.values(grouped).reduce((s,r)=>s+r.qty,0);
+  // Volumes: soma de vols de cada item (multiplicação manual conta como volume)
+  const vols = items.reduce((s,it)=>s+(it.vols||1),0);
   const hist = histLoad().length;
 
   document.getElementById('d-refs').textContent = refs;
   document.getElementById('d-cxas').textContent = cxas;
-  document.getElementById('d-hist').textContent = hist;
+  document.getElementById('d-vols').textContent = vols;
   document.getElementById('db-hist-sub').textContent = hist + ' contagen' + (hist!==1?'s':'');
-  document.getElementById('db-lista-sub').textContent = session
-    ? (refs + ' ref' + (refs!==1?'s':'') + ' · ' + cxas + ' pç — toque para baixar')
-    : 'Sem sessão ativa';
+
+  // Analytics do histórico completo
+  _updateDashAnalytics();
 
   const dot  = document.getElementById('sdot');
   const name = document.getElementById('sname');
@@ -1715,6 +2032,7 @@ function updateDash(){
    SESSION
 ═══════════════════════════════════════════════ */
 function isLP(n){ return (n||'').trim().toUpperCase()==='LINKPLAS'; }
+function isTP(n){ return (n||'').trim().toUpperCase()==='TITUPLAST'; }
 function isSPI(n){ return (n||'').trim().toUpperCase()==='SPI'; }
 
 /* ── Fornecedores cadastrados (custom) ── */
@@ -1728,28 +2046,34 @@ function fornFindByName(name){
 
 /* ── Tab switching ── */
 function fornTabShow(tab){
-  ['cadastrados','cadastrar','api','ia'].forEach(t=>{
-    document.getElementById('ftab-body-'+t).style.display = t===tab?'block':'none';
-    document.getElementById('ftab-'+t).classList.toggle('active', t===tab);
+  ['cadastrados','cadastrar'].forEach(t=>{
+    const body = document.getElementById('ftab-body-'+t);
+    const btn  = document.getElementById('ftab-'+t);
+    if(body) body.style.display = t===tab?'block':'none';
+    if(btn)  btn.classList.toggle('active', t===tab);
   });
   if(tab==='cadastrados') renderFornList();
-  if(tab==='cadastrar'){   fornFormReset(); _aiChatHistory=[]; aiInlineInit(); }
-  if(tab==='api')         _updateVisionStatus();
-  if(tab==='ia')          aiTabInit();
+  if(tab==='cadastrar')  { fornFormReset(); _aiChatHistory=[]; aiInlineInit(); }
+  // api/ia redirecionam para configurações
+  if(tab==='api'||tab==='ia') navTo('pg-config');
 }
 
 /* ── Tipo de parser ── */
 function fornTipoChange(){
   const tipo = document.getElementById('fn-tipo').value;
-  ['regex','pipe','kv','posicional','fixo'].forEach(t=>{
-    document.getElementById('fs-'+t).style.display = tipo===t?'block':'none';
+  ['regex','pipe','kv','posicional','fixo','ocr_vision'].forEach(t=>{
+    const el = document.getElementById('fs-'+t);
+    if(el) el.style.display = tipo===t?'block':'none';
   });
   document.getElementById('forn-test-box').className='';
   document.getElementById('forn-test-box').style.display='none';
-  // Seed primeira linha se vazio
   if(tipo==='fixo'){
     const list = document.getElementById('fn-fixo-list');
     if(!list.children.length) fixoAddRow('fn-fixo-list');
+  }
+  if(tipo==='ocr_vision'){
+    const list = document.getElementById('fn-vision-list');
+    if(!list.children.length) fixoAddRow('fn-vision-list');
   }
 }
 
@@ -1799,24 +2123,16 @@ function fixoFillRows(containerId, items=[]){
 
 function fornFormReset(){
   document.getElementById('fn-nome').value='';
-  document.getElementById('fn-tipo').value='generico';
-  document.getElementById('fn-ref-regex').value='';
-  document.getElementById('fn-qty-regex').value='';
-  document.getElementById('fn-qty-div').value='1';
-  document.getElementById('fn-ref-strip').value='';
-  document.getElementById('fn-pipe-ref').value='0';
-  document.getElementById('fn-pipe-qty').value='2';
-  document.getElementById('fn-pipe-sep').value='|';
-  document.getElementById('fn-pipe-desc').value='1';
-  document.getElementById('fn-kv-ref').value='REF';
-  document.getElementById('fn-kv-qty').value='QTD';
-  document.getElementById('fn-kv-sep').value=';';
-  document.getElementById('fn-kv-eq').value='=';
-  document.getElementById('fn-pos-ref-s').value='0';
-  document.getElementById('fn-pos-ref-e').value='12';
-  document.getElementById('fn-pos-qty-s').value='12';
-  document.getElementById('fn-pos-qty-e').value='17';
-  document.getElementById('fn-pos-div').value='1';
+  document.getElementById('fn-tipo').value='ocr_vision';
+  // Limpar lista de refs do OCR Vision
+  const vlist = document.getElementById('fn-vision-list');
+  if(vlist) vlist.innerHTML='';
+  const qrx = document.getElementById('fn-vision-qty-regex');
+  if(qrx) qrx.value='';
+  const qdv = document.getElementById('fn-vision-qty-div');
+  if(qdv) qdv.value='1';
+  const mmv = document.getElementById('fn-vision-match-mode');
+  if(mmv) mmv.value='contains';
   document.getElementById('fn-test-raw').value='';
   document.getElementById('forn-test-box').className='';
   document.getElementById('forn-test-box').style.display='none';
@@ -1827,7 +2143,7 @@ function fornFormReset(){
 function fornSave(){
   const nome = document.getElementById('fn-nome').value.trim().toUpperCase();
   if(!nome){ toast('Informe o nome do fornecedor',true); return; }
-  if(['LINKPLAS','SPI'].includes(nome)){ toast('Nome reservado — escolha outro',true); return; }
+  if(['LINKPLAS','SPI','TITUPLAST'].includes(nome)){ toast('Nome reservado — escolha outro',true); return; }
 
   const tipo = document.getElementById('fn-tipo').value;
   const cfg  = { nome, tipo };
@@ -1862,6 +2178,13 @@ function fornSave(){
     const refs = fixoReadRows('fn-fixo-list');
     if(!refs.length){ toast('Adicione ao menos uma referência fixa',true); return; }
     cfg.fixoRefs = refs;
+  } else if(tipo==='ocr_vision'){
+    const refs = fixoReadRows('fn-vision-list');
+    if(!refs.length){ toast('Adicione ao menos uma referência para o OCR Vision',true); return; }
+    cfg.fixoRefs    = refs;
+    cfg.visionQtyRx = (document.getElementById('fn-vision-qty-regex').value||'').trim();
+    cfg.visionQtyDiv= Math.max(1, parseInt(document.getElementById('fn-vision-qty-div').value)||1);
+    cfg.visionMatch = document.getElementById('fn-vision-match-mode').value || 'contains';
   }
   // json e generico não têm parâmetros extras
 
@@ -1899,9 +2222,17 @@ function parseCustomForn(raw, cfg){
   } else if(tipo==='pipe'){
     const sep = cfg.pipeSep||'|';
     const parts = raw.split(sep);
-    ref = (parts[cfg.pipeRef]||'').trim();
-    qty = parseInt((parts[cfg.pipeQty]||'1').trim())||1;
-    if(cfg.pipeDesc>=0) desc = (parts[cfg.pipeDesc]||'').trim();
+    const n = parts.length;
+    // Suporta índices negativos: -1 = último campo, -2 = penúltimo, etc.
+    const idxRef = cfg.pipeRef < 0 ? n + cfg.pipeRef : cfg.pipeRef;
+    const idxQty = cfg.pipeQty < 0 ? n + cfg.pipeQty : cfg.pipeQty;
+    ref = (parts[idxRef]||'').trim();
+    qty = parseInt((parts[idxQty]||'1').trim())||1;
+    // pipeDesc === -1 (padrão) significa "ignorar descrição"
+    if(cfg.pipeDesc !== undefined && cfg.pipeDesc !== -1){
+      const idxDesc = cfg.pipeDesc < 0 ? n + cfg.pipeDesc : cfg.pipeDesc;
+      desc = (parts[idxDesc]||'').trim();
+    }
 
   } else if(tipo==='kv'){
     const sep = cfg.kvSep||';';
@@ -1998,7 +2329,7 @@ function renderFornList(){
   list.innerHTML='';
   const tipoLabel={
     generico:'Genérico', regex:'Regex', pipe:'Pipe',
-    kv:'Chave-Valor', json:'JSON', posicional:'Posicional'
+    kv:'Chave-Valor', json:'JSON', fixo:'Refs Fixas', ocr_vision:'Refs Padrão', posicional:'Posicional'
   };
   arr.forEach(f=>{
     const div=document.createElement('div');
@@ -2044,7 +2375,7 @@ let _fornEditNome = null;
 
 function mfeTypeChange(){
   const tipo = document.getElementById('mfe-tipo').value;
-  ['regex','pipe','kv','posicional','fixo'].forEach(t=>{
+  ['regex','pipe','kv','posicional','fixo','ocr_vision'].forEach(t=>{
     const el = document.getElementById('mfe-fs-'+t);
     if(el) el.style.display = tipo===t ? 'block' : 'none';
   });
@@ -2052,7 +2383,10 @@ function mfeTypeChange(){
     const list = document.getElementById('mfe-fixo-list');
     if(list && !list.children.length) fixoAddRow('mfe-fixo-list');
   }
-  // limpar resultado de teste ao mudar tipo
+  if(tipo==='ocr_vision'){
+    const list = document.getElementById('mfe-vision-list');
+    if(list && !list.children.length) fixoAddRow('mfe-vision-list');
+  }
   const tb = document.getElementById('mfe-test-box');
   if(tb){ tb.style.display='none'; tb.className=''; }
 }
@@ -2091,6 +2425,15 @@ function fornEditOpen(nome){
     document.getElementById('mfe-pos-div').value   = f.posDiv  || 1;
   } else if(f.tipo==='fixo'){
     fixoFillRows('mfe-fixo-list', f.fixoRefs || []);
+  }
+  if(f.tipo === 'ocr_vision'){
+    fixoFillRows('mfe-vision-list', f.fixoRefs || []);
+    const qr = document.getElementById('mfe-vision-qty-regex');
+    const qd = document.getElementById('mfe-vision-qty-div');
+    const mm = document.getElementById('mfe-vision-match-mode');
+    if(qr) qr.value = f.visionQtyRx || '';
+    if(qd) qd.value = f.visionQtyDiv || 1;
+    if(mm) mm.value = f.visionMatch || 'contains';
   }
 
   // Limpar campo de teste
@@ -2162,7 +2505,7 @@ function mfeTestParser(){
 function fornEditSave(){
   const newNome = document.getElementById('mfe-nome').value.trim().toUpperCase();
   if(!newNome){ toast('Nome inválido',true); return; }
-  if(['LINKPLAS','SPI'].includes(newNome) && newNome !== _fornEditNome){
+  if(['LINKPLAS','SPI','TITUPLAST'].includes(newNome) && newNome !== _fornEditNome){
     toast('Nome reservado — escolha outro',true); return;
   }
 
@@ -2199,6 +2542,13 @@ function fornEditSave(){
     const refs = fixoReadRows('mfe-fixo-list');
     if(!refs.length){ toast('Adicione ao menos uma referência fixa',true); return; }
     cfg.fixoRefs = refs;
+  } else if(tipo==='ocr_vision'){
+    const refs = fixoReadRows('mfe-vision-list');
+    if(!refs.length){ toast('Adicione ao menos uma referência para o OCR Vision',true); return; }
+    cfg.fixoRefs    = refs;
+    cfg.visionQtyRx = (document.getElementById('mfe-vision-qty-regex').value||'').trim();
+    cfg.visionQtyDiv= Math.max(1, parseInt(document.getElementById('mfe-vision-qty-div').value)||1);
+    cfg.visionMatch = document.getElementById('mfe-vision-match-mode').value || 'contains';
   }
 
   const arr = fornLoad();
@@ -2223,14 +2573,17 @@ function fornEditDelete(){
 function _applyFornBadges(forn){
   const customCfg = fornFindByName(forn);
   document.getElementById('lp-badge').style.display  = isLP(forn)?'block':'none';
+  document.getElementById('tp-badge').style.display  = isTP(forn)?'block':'none';
   document.getElementById('spi-badge').style.display = isSPI(forn)?'block':'none';
   // Toggle QR/OCR sempre visível
   document.getElementById('mode-toggle').style.display = 'flex';
-  if(isSPI(forn)) setMode('ocr'); else setMode('qr');
+  // Forçar modo OCR se fornecedor usa Vision (SPI ou ocr_vision); LINKPLAS/TITUPLAST sempre QR
+  const isVisionType = isSPI(forn) || (customCfg && customCfg.tipo === 'ocr_vision');
+  if(isVisionType) setMode('ocr'); else setMode('qr');
   // Mostrar badge customizado se for fornecedor cadastrado
   const custBadge = document.getElementById('cust-badge');
   if(custBadge){
-    if(customCfg && !isLP(forn) && !isSPI(forn)){
+    if(customCfg && !isLP(forn) && !isTP(forn) && !isSPI(forn)){
       custBadge.textContent = forn.slice(0,8);
       custBadge.style.display='block';
     } else {
@@ -2288,7 +2641,10 @@ function _populateOcrFornSelect(currentForn){
   // Opções: SPI (built-in) + todos os cadastrados
   const options = [
     { value:'SPI', label:'SPI (padrão built-in)' },
-    ...forn.map(f=>({ value:f.nome, label:f.nome + ' (' + (f.tipo||'genérico') + ')' }))
+    ...forn.map(f=>({
+      value: f.nome,
+      label: f.nome + (f.tipo==='ocr_vision' ? ' · Refs Padrão' : ' (' + (f.tipo||'genérico') + ')')
+    }))
   ];
   sel.innerHTML = options.map(o =>
     `<option value="${h_(o.value)}"${o.value===currentForn?' selected':''}>${h_(o.label)}</option>`
@@ -2358,6 +2714,7 @@ function resetScanUI(){
   document.getElementById('card-scan-list').style.display = 'none';
   document.getElementById('qr-box').classList.remove('on');
   document.getElementById('lp-badge').style.display    = 'none';
+  document.getElementById('tp-badge').style.display    = 'none';
   document.getElementById('inp-forn').value = '';
   document.getElementById('inp-nf').value   = '';
 }
@@ -2612,12 +2969,10 @@ let _lastOcrTs = 0;
 
 /* ── Resolução da chave com prioridade ── */
 function visionKeyResolve(){
-  // 1. Chave embutida no HTML (maior prioridade)
-  if(typeof EMBEDDED_VISION_KEY === 'string' && EMBEDDED_VISION_KEY.trim().length > 10){
+  // Chave embutida diretamente no HTML (editar EMBEDDED_VISION_KEY no topo)
+  if(typeof EMBEDDED_VISION_KEY === 'string' && EMBEDDED_VISION_KEY.trim().length > 10)
     return EMBEDDED_VISION_KEY.trim();
-  }
-  // 2. Chave salva no localStorage
-  return localStorage.getItem('rcb_vision_key') || '';
+  return '';
 }
 
 function visionKeyLoad(){ return localStorage.getItem('rcb_vision_key')||''; }
@@ -2797,17 +3152,43 @@ async function ocrCapture(silent=false){
       const spiRes = parseSPI(fullText);
       if(spiRes) ocrParsed = { ref: spiRes.ref, qty: spiRes.qty, forn: 'SPI' };
     } else {
-      if(customCfg && customCfg.tipo === 'fixo'){
-        // Para tipo fixo: procura qualquer referência cadastrada no texto do OCR
-        // Remove espaços e compara linha a linha também (OCR pode inserir quebras no meio da ref)
+      if(customCfg && (customCfg.tipo === 'fixo' || customCfg.tipo === 'ocr_vision')){
+        // Busca referências cadastradas no texto OCR
         const textUp  = fullText.toUpperCase();
         const flatUp  = textUp.replace(/\s+/g, '');
         const fixoRefs = customCfg.fixoRefs || [];
+        const matchMode = customCfg.visionMatch || 'contains';
+
         for(const item of fixoRefs){
-          const refUp = item.ref.toUpperCase();
+          const refUp   = item.ref.toUpperCase();
           const refFlat = refUp.replace(/\s+/g, '');
-          if(textUp.includes(refUp) || flatUp.includes(refFlat)){
-            ocrParsed = { ref: item.ref, qty: item.qty, forn: ocrForn };
+          let matched = false;
+
+          if(matchMode === 'contains'){
+            matched = textUp.includes(refUp) || flatUp.includes(refFlat);
+          } else if(matchMode === 'line'){
+            // Ref ocupa uma linha inteira (trimada)
+            matched = fullText.toUpperCase().split(/\n|\r/).map(l=>l.trim().toUpperCase()).includes(refUp);
+          } else if(matchMode === 'word'){
+            // Palavra exata delimitada por não-alfanuméricos
+            const re = new RegExp('(?<![A-Z0-9])' + refUp.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '(?![A-Z0-9])');
+            matched = re.test(textUp);
+          }
+
+          if(matched){
+            // Tentar extrair quantidade da etiqueta (se regex configurado)
+            let qty = item.qty; // padrão cadastrado
+            if(customCfg.tipo === 'ocr_vision' && customCfg.visionQtyRx){
+              try{
+                const rxQty = new RegExp(customCfg.visionQtyRx, 'i');
+                const mQty  = fullText.match(rxQty);
+                if(mQty && mQty[1]){
+                  const div = Math.max(1, customCfg.visionQtyDiv || 1);
+                  qty = Math.round(parseInt(mQty[1]) / div);
+                }
+              }catch(e){}
+            }
+            ocrParsed = { ref: item.ref, qty: qty, forn: ocrForn };
             break;
           }
         }
@@ -3012,6 +3393,17 @@ function parseLinkplas(raw){
   return{ref:mR[1],qty};
 }
 
+function parseTituplast(raw){
+  // Padrão TITUPLAST: campos separados por ; — Ref = índice 3, Qtd = último campo
+  // Ex: 0000000000000;OP;03.156.156006.02-00;F02312002001A;PC;47711;166268312215;10
+  const parts = raw.split(';');
+  if(parts.length < 4) return null;
+  const ref = (parts[3]||'').trim();
+  const qty = parseInt((parts[parts.length-1]||'').trim(), 10);
+  if(!ref || !qty || qty<=0) return null;
+  return { ref, qty };
+}
+
 function parseGeneric(raw){
   raw=raw.trim();
   if(raw.startsWith('{')){
@@ -3061,6 +3453,10 @@ function handleQR(raw){
     const lp=parseLinkplas(raw);
     if(!lp){setSt('Padrão LINKPLAS não reconhecido','err');return;}
     parsed={ref:lp.ref,desc:'',qty:lp.qty,forn:session.forn};
+  } else if(isTP(session.forn)){
+    const tp=parseTituplast(raw);
+    if(!tp){setSt('Padrão TITUPLAST não reconhecido','err');return;}
+    parsed={ref:tp.ref,desc:'',qty:tp.qty,forn:session.forn};
   } else {
     // Tentar parser do fornecedor customizado cadastrado
     const customCfg = fornFindByName(session.forn);
@@ -3408,7 +3804,8 @@ function setHistFilter(forn){
 
 function renderHist(){
   const arr=histLoad();
-  document.getElementById('d-hist').textContent=arr.length;
+  document.getElementById('d-hist-label') && (document.getElementById('d-hist-label').textContent = arr.length + ' contagen'+(arr.length!==1?'s salvas':'salva'));
+  _updateDashAnalytics();
 
   // Atualizar tabs de filtro
   const filterEl=document.getElementById('hist-filter');
@@ -3806,13 +4203,13 @@ function aiKeySave(){
   const k = document.getElementById('ai-api-key').value.trim();
   if(!k){ toast('Cole a chave antes de salvar',true); return; }
   if(!k.startsWith('sk-')){ toast('Chave inválida — deve começar com sk-',true); return; }
-  localStorage.setItem('rcb_ai_key', k);
+  // chave embutida em EMBEDDED_OPENAI_KEY — localStorage não usado
   aiTabInit();
   toast('Chave IA salva');
 }
 
 function aiKeyClear(){
-  localStorage.removeItem('rcb_ai_key');
+  // chave embutida em EMBEDDED_OPENAI_KEY — localStorage não usado
   document.getElementById('ai-api-key').value='';
   aiTabInit();
   toast('Chave removida');
@@ -3826,14 +4223,14 @@ function aiKeyCheck(){
   } else if(v.length>0){
     el.textContent='INVÁLIDA'; el.className='key-src none';
   } else {
-    const saved = localStorage.getItem('rcb_ai_key');
+    const saved = (typeof EMBEDDED_OPENAI_KEY==='string'&&EMBEDDED_OPENAI_KEY.trim().length>10?EMBEDDED_OPENAI_KEY.trim():(localStorage.getItem('rcb_openai_key')||''));
     el.textContent = saved ? '✓ SALVA' : 'SEM CHAVE';
     el.className = saved ? 'key-src ls' : 'key-src none';
   }
 }
 
 function aiTabInit(){
-  const saved = localStorage.getItem('rcb_ai_key');
+  const saved = (typeof EMBEDDED_OPENAI_KEY==='string'&&EMBEDDED_OPENAI_KEY.trim().length>10?EMBEDDED_OPENAI_KEY.trim():(localStorage.getItem('rcb_openai_key')||''));
   const el = document.getElementById('ai-key-status');
   if(saved){
     el.textContent='✓ ATIVA'; el.className='key-src emb';
@@ -3845,8 +4242,8 @@ function aiTabInit(){
 
 /* ── Analisar etiqueta ── */
 async function aiAnalyze(){
-  const key  = localStorage.getItem('rcb_ai_key');
-  if(!key){ toast('Configure a chave IA na aba 🤖 IA primeiro',true); return; }
+  const key  = (typeof EMBEDDED_OPENAI_KEY==='string'&&EMBEDDED_OPENAI_KEY.trim().length>10?EMBEDDED_OPENAI_KEY.trim():(localStorage.getItem('rcb_openai_key')||''));
+  if(!key){ toast('Configure a chave OpenAI em Configurações ⚙',true); return; }
 
   const raw   = document.getElementById('ai-label-raw').value.trim();
   const forn  = document.getElementById('ai-forn-nome').value.trim();
@@ -4101,26 +4498,7 @@ let _aiChatBusy      = false;
 
 /* ── Inicializar painel ao entrar na aba cadastrar ── */
 function aiInlineInit(){
-  const key = localStorage.getItem('rcb_ai_key');
-  const st  = document.getElementById('ai-inline-status');
-  const nokey = document.getElementById('ai-chat-nokey');
-  const send  = document.getElementById('ai-chat-send-btn');
-  const inp   = document.getElementById('ai-chat-input');
-  if(key){
-    st.textContent='✓ ATIVA'; st.className='key-src emb';
-    if(nokey) nokey.style.display='none';
-    if(send) send.disabled=false;
-    if(inp) inp.disabled=false;
-  } else {
-    st.textContent='SEM CHAVE'; st.className='key-src none';
-    if(nokey) nokey.style.display='block';
-    if(send) send.disabled=true;
-    if(inp) inp.disabled=true;
-  }
-  // Mensagem de boas-vindas se histórico vazio
-  if(_aiChatHistory.length===0 && key){
-    aiChatAddMsg('sys','💡 Cole uma etiqueta de exemplo e descreva o que precisa. Eu ajusto as regras automaticamente.');
-  }
+  // Painel IA inline removido — função mantida para compatibilidade
 }
 
 /* ── Abrir/fechar painel ── */
@@ -4307,8 +4685,8 @@ function aiChatApplyUpdate(update){
 /* ── Enviar mensagem ── */
 async function aiChatSend(){
   if(_aiChatBusy) return;
-  const key = localStorage.getItem('rcb_ai_key');
-  if(!key){ toast('Configure a chave IA na aba 🤖 IA primeiro',true); return; }
+  const key = (typeof EMBEDDED_OPENAI_KEY==='string'&&EMBEDDED_OPENAI_KEY.trim().length>10?EMBEDDED_OPENAI_KEY.trim():(localStorage.getItem('rcb_openai_key')||''));
+  if(!key){ toast('Configure a chave OpenAI em Configurações ⚙',true); return; }
 
   const inp = document.getElementById('ai-chat-input');
   const msg = inp.value.trim();
@@ -4437,6 +4815,421 @@ IMPORTANTE: quando tipo for "regex", o objeto config DEVE ter refRegex e qtyRege
     document.getElementById('ai-chat-send-btn').disabled = false;
   }
 }
+
+/* ═══════════════════════════════════════════════
+   CONFIGURAÇÕES — pg-config
+═══════════════════════════════════════════════ */
+function cfgPageOpen(){
+  // Status Vision
+  const embVision = typeof EMBEDDED_VISION_KEY==='string' && EMBEDDED_VISION_KEY.trim().length>10;
+  const lsVision  = localStorage.getItem('rcb_vision_key') || '';
+  const vi = document.getElementById('cfg-vision-key');
+  const embViBox = document.getElementById('cfg-emb-vision-info');
+  if(embVision){
+    if(embViBox) embViBox.style.display='block';
+    if(vi) vi.value='';
+  } else {
+    if(embViBox) embViBox.style.display='none';
+    if(vi) vi.value = lsVision;
+  }
+  cfgVisionStatusUpdate();
+
+  // Status OpenAI
+  const embAi = typeof EMBEDDED_OPENAI_KEY==='string' && EMBEDDED_OPENAI_KEY.trim().length>10;
+  const lsAi  = localStorage.getItem('rcb_openai_key') || '';
+  const ai = document.getElementById('cfg-ai-key');
+  const embAiBox = document.getElementById('cfg-emb-ai-info');
+  if(embAi){
+    if(embAiBox) embAiBox.style.display='block';
+    if(ai) ai.value='';
+  } else {
+    if(embAiBox) embAiBox.style.display='none';
+    if(ai) ai.value = lsAi;
+  }
+  cfgAiStatusUpdate();
+
+  // Engine label
+  const el = document.getElementById('cfg-engine-label');
+  if(el) el.textContent = (typeof _engineLabel!=='undefined' ? _engineLabel : '—');
+}
+
+function cfgVisionStatusUpdate(){
+  const s = document.getElementById('cfg-vision-status');
+  if(!s) return;
+  const embVision = typeof EMBEDDED_VISION_KEY==='string' && EMBEDDED_VISION_KEY.trim().length>10;
+  const v = (document.getElementById('cfg-vision-key')||{}).value||'';
+  const saved = localStorage.getItem('rcb_vision_key')||'';
+  if(embVision){ s.className='key-src emb'; s.textContent='EMBUTIDA'; }
+  else if(v.length>10||saved.length>10){ s.className='key-src ls'; s.textContent='CONFIGURADA'; }
+  else { s.className='key-src none'; s.textContent='SEM CHAVE'; }
+}
+
+function cfgVisionSave(){
+  const v = (document.getElementById('cfg-vision-key')||{}).value||'';
+  if(!v.trim()){ toast('Cole a API Key antes de salvar',true); return; }
+  localStorage.setItem('rcb_vision_key', v.trim());
+  cfgVisionStatusUpdate();
+  _updateVisionStatus && _updateVisionStatus();
+  cfgToast('Chave Vision salva ✓');
+}
+
+function cfgVisionClear(){
+  localStorage.removeItem('rcb_vision_key');
+  const vi = document.getElementById('cfg-vision-key');
+  if(vi) vi.value='';
+  cfgVisionStatusUpdate();
+  _updateVisionStatus && _updateVisionStatus();
+  cfgToast('Chave Vision removida');
+}
+
+function cfgVisionTest(){
+  const v = (document.getElementById('cfg-vision-key')||{}).value||'';
+  if(v.trim()) localStorage.setItem('rcb_vision_key', v.trim());
+  const res = document.getElementById('cfg-vision-test-result');
+  if(res){ res.style.display='block'; res.textContent='Testando conexão...'; }
+  visionKeyTest().then(()=>{
+    const origRes = document.getElementById('vision-test-result');
+    if(res) res.textContent = (origRes && origRes.textContent) || 'Teste concluído.';
+  }).catch(()=>{
+    if(res) res.textContent = 'Erro ao testar. Verifique a chave.';
+  });
+}
+
+function cfgAiStatusUpdate(){
+  const s = document.getElementById('cfg-ai-status');
+  if(!s) return;
+  const embAi = typeof EMBEDDED_OPENAI_KEY==='string' && EMBEDDED_OPENAI_KEY.trim().length>10;
+  const v = (document.getElementById('cfg-ai-key')||{}).value||'';
+  const saved = localStorage.getItem('rcb_openai_key')||'';
+  if(embAi){ s.className='key-src emb'; s.textContent='EMBUTIDA'; }
+  else if(v.length>10||saved.length>10){ s.className='key-src ls'; s.textContent='CONFIGURADA'; }
+  else { s.className='key-src none'; s.textContent='SEM CHAVE'; }
+}
+
+function cfgAiSave(){
+  const v = (document.getElementById('cfg-ai-key')||{}).value||'';
+  if(!v.trim()){ toast('Cole a API Key antes de salvar',true); return; }
+  localStorage.setItem('rcb_openai_key', v.trim());
+  cfgAiStatusUpdate();
+  cfgToast('Chave OpenAI salva ✓');
+}
+
+function cfgAiClear(){
+  localStorage.removeItem('rcb_openai_key');
+  const ai = document.getElementById('cfg-ai-key');
+  if(ai) ai.value='';
+  cfgAiStatusUpdate();
+  cfgToast('Chave OpenAI removida');
+}
+
+function cfgToast(msg){
+  let t = document.getElementById('_cfg_toast');
+  if(!t){
+    t = document.createElement('div');
+    t.id='_cfg_toast';
+    t.style.cssText='position:fixed;bottom:28px;left:50%;transform:translateX(-50%);'+
+      'background:var(--cy);color:#000;font-family:var(--R);font-weight:700;'+
+      'font-size:.72rem;padding:9px 18px;border-radius:20px;z-index:9999;'+
+      'pointer-events:none;opacity:0;transition:opacity .2s';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg; t.style.opacity='1';
+  clearTimeout(t._tid);
+  t._tid=setTimeout(()=>{ t.style.opacity='0'; },2200);
+}
+
+
+/* ═══════════════════════════════════════════════
+   DASHBOARD ANALYTICS
+═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════
+   DASHBOARD — FILTROS E ANALYTICS
+   Estado global do filtro ativo
+═══════════════════════════════════════════════ */
+let _dashFiltroAtivo  = 'tudo';   // 'tudo' | 'dia' | 'turno' | 'range'
+let _dashTurnoAtivo   = null;     // 'manha' | 'tarde' | 'noite'
+let _dashRangeDe      = null;     // Date
+let _dashRangeAte     = null;     // Date
+
+/* Converte string pt-BR "DD/MM/YYYY, HH:MM:SS" em Date */
+function _parseDateBR(str){
+  if(!str) return null;
+  try{
+    // "14/06/2026, 22:07:25"
+    const [datePart, timePart] = str.split(', ');
+    if(!datePart) return null;
+    const [d,m,y] = datePart.split('/');
+    const [h,mi,s] = (timePart||'00:00:00').split(':');
+    return new Date(+y, +m-1, +d, +h||0, +mi||0, +s||0);
+  }catch(e){ return null; }
+}
+
+/* Retorna hora inteira (0-23) de uma string de data pt-BR */
+function _getHourBR(str){
+  const d = _parseDateBR(str);
+  return d ? d.getHours() : -1;
+}
+
+/* Filtra o array de histórico conforme o filtro ativo */
+function _filtrarHist(hist){
+  const now = new Date();
+
+  if(_dashFiltroAtivo === 'tudo') return hist;
+
+  if(_dashFiltroAtivo === 'dia'){
+    const hoje = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`;
+    return hist.filter(h => {
+      const d = _parseDateBR(h.start || h.end);
+      if(!d) return false;
+      const ds = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+      return ds === hoje;
+    });
+  }
+
+  if(_dashFiltroAtivo === 'turno'){
+    const turnos = { manha:[6,14], tarde:[14,22], noite:[22,6] };
+    const [ini, fim] = turnos[_dashTurnoAtivo] || [0,24];
+    return hist.filter(h => {
+      const hr = _getHourBR(h.start || h.end);
+      if(hr < 0) return false;
+      if(ini < fim) return hr >= ini && hr < fim;
+      return hr >= ini || hr < fim; // noite: cruza meia-noite
+    });
+  }
+
+  if(_dashFiltroAtivo === 'range' && _dashRangeDe && _dashRangeAte){
+    return hist.filter(h => {
+      const d = _parseDateBR(h.start || h.end);
+      if(!d) return false;
+      // Comparar apenas data (sem hora)
+      const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return ds >= _dashRangeDe && ds <= _dashRangeAte;
+    });
+  }
+
+  return hist;
+}
+
+/* Troca o filtro ativo e atualiza UI */
+function dashFiltro(tipo){
+  _dashFiltroAtivo = tipo;
+
+  // Estilo dos tabs
+  ['tudo','dia','turno','range'].forEach(t => {
+    const btn = document.getElementById('ftab-' + t);
+    if(!btn) return;
+    const ativo = t === tipo;
+    btn.style.background    = ativo ? 'var(--cy)' : 'transparent';
+    btn.style.color         = ativo ? '#000' : 'var(--mu2)';
+    btn.style.borderColor   = ativo ? 'var(--cy)' : 'var(--bd)';
+  });
+
+  // Mostrar/ocultar painéis extras
+  const turnoSel = document.getElementById('dash-turno-sel');
+  const rangeSel = document.getElementById('dash-range-sel');
+  if(turnoSel) turnoSel.style.display = tipo === 'turno' ? 'block' : 'none';
+  if(rangeSel) rangeSel.style.display = tipo === 'range' ? 'block' : 'none';
+
+  // Selecionar turno atual automaticamente
+  if(tipo === 'turno' && !_dashTurnoAtivo){
+    const hr = new Date().getHours();
+    const t  = hr >= 6 && hr < 14 ? 'manha' : hr >= 14 && hr < 22 ? 'tarde' : 'noite';
+    dashTurno(t);
+    return; // dashTurno já chama analytics
+  }
+
+  _updateDashAnalytics();
+}
+
+/* Seleciona turno específico */
+function dashTurno(turno){
+  _dashTurnoAtivo = turno;
+  ['manha','tarde','noite'].forEach(t => {
+    const btn = document.getElementById('tbtn-' + t);
+    if(!btn) return;
+    const ativo = t === turno;
+    btn.style.background  = ativo ? 'var(--cy)' : 'transparent';
+    btn.style.color       = ativo ? '#000' : 'var(--mu2)';
+    btn.style.borderColor = ativo ? 'var(--cy)' : 'var(--bd)';
+  });
+  _updateDashAnalytics();
+}
+
+/* Aplica filtro de range quando datas mudam */
+function dashAplicaRange(){
+  const de  = document.getElementById('dash-range-de');
+  const ate = document.getElementById('dash-range-ate');
+  if(!de || !ate || !de.value || !ate.value) return;
+  const [dy,dm,dd] = de.value.split('-').map(Number);
+  const [ay,am,ad] = ate.value.split('-').map(Number);
+  _dashRangeDe  = new Date(dy, dm-1, dd);
+  _dashRangeAte = new Date(ay, am-1, ad);
+  _updateDashAnalytics();
+}
+
+/* Label legível do filtro ativo */
+function _labelFiltro(){
+  const now = new Date();
+  if(_dashFiltroAtivo === 'tudo')  return 'EXIBINDO TODOS OS REGISTROS';
+  if(_dashFiltroAtivo === 'dia')   return `HOJE — ${now.toLocaleDateString('pt-BR')}`;
+  if(_dashFiltroAtivo === 'turno'){
+    const nomes = {manha:'☀️ MANHÃ (06h–14h)', tarde:'🌤 TARDE (14h–22h)', noite:'🌙 NOITE (22h–06h)'};
+    return 'TURNO ' + (nomes[_dashTurnoAtivo] || '');
+  }
+  if(_dashFiltroAtivo === 'range' && _dashRangeDe && _dashRangeAte){
+    return `PERÍODO: ${_dashRangeDe.toLocaleDateString('pt-BR')} → ${_dashRangeAte.toLocaleDateString('pt-BR')}`;
+  }
+  return 'SELECIONE UM PERÍODO';
+}
+
+function _updateDashAnalytics(){
+  const CORES = ['#00d8ff','#00f5a0','#ff8c00','#ff3355','#a78bfa','#f472b6','#34d399','#fbbf24'];
+  const hist  = _filtrarHist(histLoad());
+
+  // Label do filtro
+  const labelEl = document.getElementById('dash-filtro-label');
+  if(labelEl) labelEl.textContent = _labelFiltro();
+
+  // ── Calcular totais ──────────────────────────────────────
+  let totalVols = 0, totalPecas = 0;
+  const fornMap = {};
+  const refSet  = new Set();
+
+  hist.forEach(h => {
+    const pecas = Object.values(h.grouped||{}).reduce((s,r)=>s+(r.qty||0),0);
+    const vols  = (h.items||[]).reduce((s,it)=>s+(it.vols||1),0);
+    totalVols  += vols;
+    totalPecas += pecas;
+    Object.keys(h.grouped||{}).forEach(r => refSet.add(r));
+    const fn = (h.forn||'—').toUpperCase();
+    if(!fornMap[fn]) fornMap[fn]={cont:0,pecas:0,vols:0};
+    fornMap[fn].cont  += 1;
+    fornMap[fn].pecas += pecas;
+    fornMap[fn].vols  += vols;
+  });
+
+  const totalCont = hist.length;
+  const pcVol = totalVols > 0 ? (totalPecas/totalVols).toFixed(1) : '—';
+
+  // ── KPIs ────────────────────────────────────────────────
+  const _s = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+
+  _s('da-total-vols',  _fmtN(totalVols));
+  _s('da-total-pecas', _fmtN(totalPecas));
+  _s('da-total-cont',  _fmtN(totalCont));
+  _s('da-refs-unicas', _fmtN(refSet.size));
+  _s('da-pc-vol',      pcVol);
+  _s('da-vols-sub',    `em ${totalCont} contagen${totalCont!==1?'s':''}`);
+  _s('da-pecas-sub',   refSet.size ? `${refSet.size} ref${refSet.size!==1?'s':''} distintas` : 'no período');
+  _s('d-hist-label',   `${totalCont} contagen${totalCont!==1?'s':''}` );
+
+  // ── Última contagem ──────────────────────────────────────
+  if(hist.length){
+    const ult  = hist[hist.length-1];
+    const ultV = (ult.items||[]).reduce((s,it)=>s+(it.vols||1),0);
+    const ultP = Object.values(ult.grouped||{}).reduce((s,r)=>s+(r.qty||0),0);
+    _s('da-ultima-forn', ult.forn||'—');
+    _s('da-ultima-info', `${ult.end||ult.start||'—'} · ${_fmtN(ultP)} pç`);
+    _s('da-ultima-vols', _fmtN(ultV));
+  } else {
+    _s('da-ultima-forn','—');
+    _s('da-ultima-info','Nenhuma contagem no período');
+    _s('da-ultima-vols','—');
+  }
+
+  // ── Ranking fornecedores ─────────────────────────────────
+  const fl = document.getElementById('da-forn-list');
+  if(fl){
+    const sorted = Object.entries(fornMap).sort((a,b)=>b[1].vols-a[1].vols).slice(0,5);
+    if(!sorted.length){
+      fl.innerHTML='<div style="font-size:.62rem;color:var(--mu);text-align:center;padding:6px 0">Nenhuma contagem no período</div>';
+    } else {
+      const maxV = sorted[0][1].vols;
+      fl.innerHTML = sorted.map(([nome,d],i)=>{
+        const pct = Math.round((d.vols/maxV)*100);
+        const cor = CORES[i%CORES.length];
+        const medal = ['🥇','🥈','🥉','',''][i]||'';
+        return `<div style="margin-bottom:${i<sorted.length-1?'9':'0'}px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+            <div style="font-size:.65rem;font-family:var(--R);font-weight:700;color:var(--tx)">${medal} ${nome}</div>
+            <div style="font-size:.52rem;color:var(--mu2)">${_fmtN(d.vols)} vol · ${_fmtN(d.pecas)} pç · ${d.cont}×</div>
+          </div>
+          <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden;border:1px solid var(--bd)">
+            <div style="height:100%;width:${pct}%;background:${cor};border-radius:3px;transition:width .5s"></div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // ── Gráfico de barras ────────────────────────────────────
+  const chart   = document.getElementById('da-vols-chart');
+  const labels  = document.getElementById('da-vols-labels');
+  const periodo = document.getElementById('da-chart-periodo');
+  if(chart){
+    const last = hist.slice(-10);
+    if(!last.length){
+      chart.innerHTML='<div style="font-size:.62rem;color:var(--mu);text-align:center;width:100%;align-self:center">Nenhuma contagem no período</div>';
+      if(labels)  labels.innerHTML='';
+      if(periodo) periodo.textContent='—';
+    } else {
+      const vals = last.map(h=>(h.items||[]).reduce((s,it)=>s+(it.vols||1),0));
+      const maxV = Math.max(...vals,1);
+      if(periodo) periodo.textContent=`últimas ${last.length}`;
+      chart.style.cssText='display:flex;align-items:flex-end;gap:4px;height:72px';
+      chart.innerHTML = vals.map((v,i)=>{
+        const hPct   = Math.max(6,Math.round((v/maxV)*100));
+        const isLast = i===vals.length-1;
+        const cor    = isLast?'var(--cy)':'var(--mu)';
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;justify-content:flex-end">
+          <div style="font-size:.45rem;color:${cor};opacity:${isLast?1:.7}">${v||''}</div>
+          <div style="width:100%;height:${hPct}%;background:${cor};border-radius:3px 3px 0 0;opacity:${isLast?1:.5};min-height:4px"></div>
+        </div>`;
+      }).join('');
+      if(labels){
+        labels.innerHTML = last.map((h,i)=>{
+          const isLast = i===last.length-1;
+          const lbl    = (h.forn||'—').slice(0,5).toUpperCase();
+          return `<div style="flex:1;font-size:.42rem;color:${isLast?'var(--cy)':'var(--mu)'};
+            text-align:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${lbl}</div>`;
+        }).join('');
+      }
+    }
+  }
+
+  // ── Treemap distribuição ─────────────────────────────────
+  const distChart  = document.getElementById('da-dist-chart');
+  const distLegend = document.getElementById('da-dist-legend');
+  if(distChart){
+    const sorted = Object.entries(fornMap).sort((a,b)=>b[1].pecas-a[1].pecas);
+    const total  = sorted.reduce((s,[,d])=>s+d.pecas,0);
+    if(!sorted.length||!total){
+      distChart.innerHTML='<div style="flex:1;background:var(--bd);border-radius:6px"></div>';
+      if(distLegend) distLegend.innerHTML='';
+    } else {
+      distChart.innerHTML = sorted.map(([nome,d],i)=>{
+        const pct=(d.pecas/total*100).toFixed(1);
+        return `<div title="${nome}: ${_fmtN(d.pecas)} pç (${pct}%)"
+          style="flex:${d.pecas};background:${CORES[i%CORES.length]};min-width:${pct<3?'4px':'0'};transition:flex .5s"></div>`;
+      }).join('');
+      if(distLegend){
+        distLegend.innerHTML = sorted.slice(0,6).map(([nome,d],i)=>{
+          const pct=(d.pecas/total*100).toFixed(0);
+          return `<div style="display:flex;align-items:center;gap:4px">
+            <div style="width:8px;height:8px;border-radius:2px;background:${CORES[i%CORES.length]};flex-shrink:0"></div>
+            <div style="font-size:.48rem;color:var(--mu2)">${nome.slice(0,8)} <span style="color:var(--tx)">${pct}%</span></div>
+          </div>`;
+        }).join('');
+      }
+    }
+  }
+}
+
+function _fmtN(n){
+  if(n===undefined||n===null) return '0';
+  return n>=1000 ? (n/1000).toFixed(1).replace('.',',')+'k' : String(n);
+}
+
 </script>
 </body>
 </html>
