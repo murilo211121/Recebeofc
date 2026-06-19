@@ -3396,11 +3396,16 @@ function parseLinkplas(raw){
 function parseTituplast(raw){
   // Padrão TITUPLAST: campos separados por ; — Ref = índice 3, Qtd = último campo
   // Ex: 0000000000000;OP;03.156.156006.02-00;F02312002001A;PC;47711;166268312215;10
-  const parts = raw.split(';');
+  const parts = raw.split(';').map(s=>s.trim());
   if(parts.length < 4) return null;
-  const ref = (parts[3]||'').trim();
-  const qty = parseInt((parts[parts.length-1]||'').trim(), 10);
-  if(!ref || !qty || qty<=0) return null;
+  const ref = parts[3]||'';
+  const lastField = parts[parts.length-1]||'';
+  // Qtd deve ser um número puro (sem letras/pontos) — evita confundir com outros formatos
+  if(!/^\d+$/.test(lastField)) return null;
+  const qty = parseInt(lastField, 10);
+  // Ref deve ter pelo menos 3 caracteres alfanuméricos (não vazia, não puramente numérica como o campo 0)
+  if(!ref || ref.length < 3 || !/[A-Za-z]/.test(ref)) return null;
+  if(!qty || qty<=0) return null;
   return { ref, qty };
 }
 
@@ -3421,7 +3426,12 @@ function parseGeneric(raw){
     return{ref:o.ref||o.referencia||o.codigo||raw,desc:o.desc||o.descricao||'',
       qty:parseInt(o.qtd||o.qty||o.quantidade||1),forn:o.forn||o.fornecedor||''};
   }
-  if(raw.includes(';')){const p=raw.split(';');return{ref:p[0]||raw,desc:p[1]||'',qty:parseInt(p[2])||1,forn:p[3]||''};}
+  // Auto-detecção do padrão TITUPLAST (8 campos separados por ; com ref alfanumérica no índice 3)
+  if(raw.includes(';')){
+    const tp = parseTituplast(raw);
+    if(tp) return { ref:tp.ref, desc:'', qty:tp.qty, forn:'' };
+    const p=raw.split(';');return{ref:p[0]||raw,desc:p[1]||'',qty:parseInt(p[2])||1,forn:p[3]||''};
+  }
   return{ref:raw,desc:'',qty:1,forn:''};
 }
 
