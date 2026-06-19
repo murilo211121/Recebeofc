@@ -1067,7 +1067,7 @@ textarea{resize:none;min-height:60px}
         letter-spacing:1.5px;font-family:var(--R);font-weight:700">LINKPLAS</div>
       <div id="tp-badge" style="display:none;font-size:.5rem;background:rgba(167,139,250,.1);
         border:1px solid rgba(167,139,250,.35);color:#a78bfa;padding:2px 7px;border-radius:3px;
-        letter-spacing:1.5px;font-family:var(--R);font-weight:700">TITUPLAST</div>
+        letter-spacing:1.5px;font-family:var(--R);font-weight:700">TUTIPLAST</div>
       <div id="spi-badge" style="display:none;font-size:.5rem;background:rgba(255,140,0,.1);
         border:1px solid rgba(255,140,0,.4);color:var(--wa);padding:2px 7px;border-radius:3px;
         letter-spacing:1.5px;font-family:var(--R);font-weight:700">SPI · OCR</div>
@@ -1082,7 +1082,28 @@ textarea{resize:none;min-height:60px}
     <div class="card" id="card-sess">
       <div class="ctit">Nova Sessão</div>
       <label>Fornecedor</label>
-      <input id="inp-forn" type="text" placeholder="Ex: LINKPLAS" autocomplete="off"
+
+      <!-- Atalhos para padrões internos fixos -->
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <button type="button" onclick="sessPickForn('LINKPLAS')"
+          style="flex:1;min-width:88px;padding:9px 6px;border-radius:8px;
+          border:1px solid rgba(0,216,255,.3);background:rgba(0,216,255,.06);
+          color:var(--cy);font-family:var(--R);font-weight:700;font-size:.65rem;
+          letter-spacing:.5px;cursor:pointer">LINKPLAS</button>
+        <button type="button" onclick="sessPickForn('TUTIPLAST')"
+          style="flex:1;min-width:88px;padding:9px 6px;border-radius:8px;
+          border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.08);
+          color:#a78bfa;font-family:var(--R);font-weight:700;font-size:.65rem;
+          letter-spacing:.5px;cursor:pointer">TUTIPLAST</button>
+        <button type="button" onclick="sessPickForn('SPI')"
+          style="flex:1;min-width:88px;padding:9px 6px;border-radius:8px;
+          border:1px solid rgba(255,140,0,.4);background:rgba(255,140,0,.08);
+          color:var(--wa);font-family:var(--R);font-weight:700;font-size:.65rem;
+          letter-spacing:.5px;cursor:pointer">SPI</button>
+      </div>
+      <div id="sess-forn-extra-list" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap"></div>
+
+      <input id="inp-forn" type="text" placeholder="Ou digite o nome do fornecedor" autocomplete="off"
         autocorrect="off" autocapitalize="characters">
       <label>NF / Pedido (opcional)</label>
       <input id="inp-nf" type="text" placeholder="Ex: NF-001234">
@@ -1401,7 +1422,7 @@ textarea{resize:none;min-height:60px}
           </div>
           <div class="forn-card" style="cursor:default;margin-bottom:0">
             <div class="forn-card-head">
-              <div class="forn-card-name" style="color:#a78bfa">TITUPLAST</div>
+              <div class="forn-card-name" style="color:#a78bfa">TUTIPLAST</div>
               <span class="forn-card-type" style="background:rgba(167,139,250,.1);color:#a78bfa">QR · ;</span>
             </div>
             <div class="forn-card-meta">
@@ -1963,6 +1984,9 @@ function navTo(id){
     document.getElementById('m-forn').value              = session.forn;
     renderScanList();
   }
+  if(id==='pg-scan' && !session){
+    _renderSessFornChips();
+  }
 }
 
 function navBack(){
@@ -2032,7 +2056,7 @@ function updateDash(){
    SESSION
 ═══════════════════════════════════════════════ */
 function isLP(n){ return (n||'').trim().toUpperCase()==='LINKPLAS'; }
-function isTP(n){ return (n||'').trim().toUpperCase()==='TITUPLAST'; }
+function isTP(n){ return (n||'').trim().toUpperCase()==='TUTIPLAST'; }
 function isSPI(n){ return (n||'').trim().toUpperCase()==='SPI'; }
 
 /* ── Fornecedores cadastrados (custom) ── */
@@ -2143,7 +2167,7 @@ function fornFormReset(){
 function fornSave(){
   const nome = document.getElementById('fn-nome').value.trim().toUpperCase();
   if(!nome){ toast('Informe o nome do fornecedor',true); return; }
-  if(['LINKPLAS','SPI','TITUPLAST'].includes(nome)){ toast('Nome reservado — escolha outro',true); return; }
+  if(['LINKPLAS','SPI','TUTIPLAST'].includes(nome)){ toast('Nome reservado — escolha outro',true); return; }
 
   const tipo = document.getElementById('fn-tipo').value;
   const cfg  = { nome, tipo };
@@ -2505,7 +2529,7 @@ function mfeTestParser(){
 function fornEditSave(){
   const newNome = document.getElementById('mfe-nome').value.trim().toUpperCase();
   if(!newNome){ toast('Nome inválido',true); return; }
-  if(['LINKPLAS','SPI','TITUPLAST'].includes(newNome) && newNome !== _fornEditNome){
+  if(['LINKPLAS','SPI','TUTIPLAST'].includes(newNome) && newNome !== _fornEditNome){
     toast('Nome reservado — escolha outro',true); return;
   }
 
@@ -2577,7 +2601,7 @@ function _applyFornBadges(forn){
   document.getElementById('spi-badge').style.display = isSPI(forn)?'block':'none';
   // Toggle QR/OCR sempre visível
   document.getElementById('mode-toggle').style.display = 'flex';
-  // Forçar modo OCR se fornecedor usa Vision (SPI ou ocr_vision); LINKPLAS/TITUPLAST sempre QR
+  // Forçar modo OCR se fornecedor usa Vision (SPI ou ocr_vision); LINKPLAS/TUTIPLAST sempre QR
   const isVisionType = isSPI(forn) || (customCfg && customCfg.tipo === 'ocr_vision');
   if(isVisionType) setMode('ocr'); else setMode('qr');
   // Mostrar badge customizado se for fornecedor cadastrado
@@ -2649,6 +2673,28 @@ function _populateOcrFornSelect(currentForn){
   sel.innerHTML = options.map(o =>
     `<option value="${h_(o.value)}"${o.value===currentForn?' selected':''}>${h_(o.label)}</option>`
   ).join('');
+}
+
+/* Preenche o campo de fornecedor ao tocar num atalho/chip */
+function sessPickForn(nome){
+  const inp = document.getElementById('inp-forn');
+  if(inp){ inp.value = nome; inp.focus(); }
+}
+
+/* Popula chips extras com fornecedores cadastrados (não-reservados) */
+function _renderSessFornChips(){
+  const wrap = document.getElementById('sess-forn-extra-list');
+  if(!wrap) return;
+  const forn = fornLoad();
+  if(!forn.length){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = forn.map(f=>{
+    const nome = h_(f.nome);
+    return `<button type="button" onclick="sessPickForn('${nome.replace(/'/g,"\\'")}')"
+      style="flex:1;min-width:88px;padding:9px 6px;border-radius:8px;
+      border:1px solid rgba(0,245,160,.3);background:rgba(0,245,160,.06);
+      color:var(--gr);font-family:var(--R);font-weight:700;font-size:.65rem;
+      letter-spacing:.5px;cursor:pointer">${nome}</button>`;
+  }).join('');
 }
 
 function sessStart(){
@@ -3394,7 +3440,7 @@ function parseLinkplas(raw){
 }
 
 function parseTituplast(raw){
-  // Padrão TITUPLAST: campos separados por ; — Ref = índice 3, Qtd = último campo
+  // Padrão TUTIPLAST: campos separados por ; — Ref = índice 3, Qtd = último campo
   // Ex: 0000000000000;OP;03.156.156006.02-00;F02312002001A;PC;47711;166268312215;10
   const parts = raw.split(';').map(s=>s.trim());
   if(parts.length < 4) return null;
@@ -3426,7 +3472,7 @@ function parseGeneric(raw){
     return{ref:o.ref||o.referencia||o.codigo||raw,desc:o.desc||o.descricao||'',
       qty:parseInt(o.qtd||o.qty||o.quantidade||1),forn:o.forn||o.fornecedor||''};
   }
-  // Auto-detecção do padrão TITUPLAST (8 campos separados por ; com ref alfanumérica no índice 3)
+  // Auto-detecção do padrão TUTIPLAST (8 campos separados por ; com ref alfanumérica no índice 3)
   if(raw.includes(';')){
     const tp = parseTituplast(raw);
     if(tp) return { ref:tp.ref, desc:'', qty:tp.qty, forn:'' };
@@ -3465,7 +3511,7 @@ function handleQR(raw){
     parsed={ref:lp.ref,desc:'',qty:lp.qty,forn:session.forn};
   } else if(isTP(session.forn)){
     const tp=parseTituplast(raw);
-    if(!tp){setSt('Padrão TITUPLAST não reconhecido','err');return;}
+    if(!tp){setSt('Padrão TUTIPLAST não reconhecido','err');return;}
     parsed={ref:tp.ref,desc:'',qty:tp.qty,forn:session.forn};
   } else {
     // Tentar parser do fornecedor customizado cadastrado
@@ -4137,10 +4183,10 @@ function _getAudioCtx(){
 function doBip(){
   // Vibração (Android/alguns iOS)
   try{
-    if(navigator.vibrate){ navigator.vibrate([60]); }
+    if(navigator.vibrate){ navigator.vibrate(50); }
   }catch(e){}
 
-  // Bip sonoro via Web Audio API
+  // Bip estilo coletor de fábrica (Honeywell/Zebra): tom agudo, constante, seco
   try{
     const ctx = _getAudioCtx();
     if(!ctx) return;
@@ -4149,12 +4195,13 @@ function doBip(){
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.type = 'square';
-    osc.frequency.setValueAtTime(1800, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.08);
-    gain.gain.setValueAtTime(0.18, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+    osc.frequency.setValueAtTime(2700, ctx.currentTime); // tom fixo e agudo, sem rampa
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.003); // ataque rápido
+    gain.gain.setValueAtTime(0.22, ctx.currentTime + 0.045);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.07); // corte seco
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.12);
+    osc.stop(ctx.currentTime + 0.075);
   }catch(e){}
 }
 
