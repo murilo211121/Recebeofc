@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Conferência de Nota Fiscal</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 /* ===================== RESET / BASE ===================== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -349,6 +350,7 @@ footer.app-footer{
         <input type="text" id="searchInput" placeholder="Pesquisar referência ou produto...">
         <div class="actions-row" style="margin-top:0;">
           <button class="btn-secondary" id="btnExportCSV" type="button">Exportar CSV</button>
+          <button class="btn-secondary" id="btnExportExcel" type="button">Exportar Excel</button>
           <button class="btn-secondary" id="btnCopyList" type="button">Copiar lista</button>
           <button class="btn-danger" id="btnNovaNota" type="button">Nova Nota</button>
         </div>
@@ -609,9 +611,11 @@ function detectHeaderColumns(rows){
       for (const field in HEADER_KEYWORDS){
         if (found[field] !== undefined) continue;
         for (const kw of HEADER_KEYWORDS[field]){
-          if (upperItem.includes(kw) || upperText.includes(kw)){
-            // usa a posição do próprio item quando o kw casa nele; senão
-            // usa a posição aproximada procurando o token na linha
+          // o casamento precisa ocorrer DENTRO do próprio item de texto,
+          // nunca apenas na linha inteira — caso contrário a coluna
+          // herdaria a posição X de um item qualquer da linha (bug crítico
+          // que colapsava todas as colunas na mesma posição).
+          if (upperItem.includes(kw)){
             found[field] = item.x;
             matches++;
             break;
@@ -695,9 +699,12 @@ function parseProductsByColumns(rows, header){
     const quantidade = parseBRNumber(cells.quantidade);
     const unidade = (cells.unidade || "").trim();
 
-    // ignora linhas totalmente vazias de dados de produto (ex.: linhas de
-    // continuação de layout sem código nem quantidade)
-    if (!referencia && quantidade === null && !descricao) continue;
+    // uma linha de produto real de NF-e sempre tem código, ou então
+    // descrição + quantidade válida juntos. Uma linha só com descrição
+    // solta (sem código e sem quantidade que dê para somar) é ruído
+    // estrutural do PDF (ex.: rótulo truncado de outra área do documento),
+    // não um produto, e não deve gerar linha na tabela.
+    if (!referencia && !(descricao && quantidade !== null)) continue;
 
     products.push({
       referencia,
@@ -751,8 +758,13 @@ function parseProductsByPattern(rows){
 
     const descricao = tokens.slice(1, Math.max(1, tokens.length - numbers.length)).join(" ").trim();
 
+    // mesma regra de confiança mínima usada na Tentativa 1: exige código,
+    // ou descrição + quantidade válida juntos.
+    const referencia = first.trim();
+    if (!referencia && !(descricao && quantidade !== null)) continue;
+
     products.push({
-      referencia: first.trim(),
+      referencia,
       descricao,
       unidade: "",
       quantidade,
@@ -766,18 +778,26 @@ function parseProductsByPattern(rows){
 
 // Converte um número em formato brasileiro ("1.234,56" ou "200,00" ou
 // "200") para float. Retorna null se não for possível interpretar.
+// Importante: extrai apenas o PRIMEIRO token numérico plausível da string.
+// Isso protege contra imprecisão no limite das colunas (quando a última
+// coluna mapeada acaba capturando também texto/números de colunas
+// seguintes não reconhecidas, evitando concatenar vários números em um
+// só e gerar valores absurdos.
+const NUMBER_TOKEN_RE = /-?\d{1,3}(?:\.\d{3})+(?:,\d+)?|-?\d+(?:,\d+)?/;
 function parseBRNumber(str){
   if (!str) return null;
-  let s = String(str).trim();
-  if (!s) return null;
-  s = s.replace(/[^\d.,-]/g, "");
+  const s = String(str).trim();
   if (!s) return null;
 
-  if (s.includes(",")){
+  const match = s.match(NUMBER_TOKEN_RE);
+  if (!match) return null;
+
+  let token = match[0];
+  if (token.includes(",")){
     // formato BR: ponto = milhar, vírgula = decimal
-    s = s.replace(/\./g, "").replace(",", ".");
+    token = token.replace(/\./g, "").replace(",", ".");
   }
-  const val = parseFloat(s);
+  const val = parseFloat(token);
   return isNaN(val) ? null : val;
 }
 
@@ -785,24 +805,49 @@ function parseBRNumber(str){
    DADOS DA NOTA (informações complementares)
    ===================================================================== */
 function extractNFHeaderInfo(fullText){
+  // Trabalha linha a linha (cada linha corresponde a uma "linha visual" do
+  // PDF já reconstruída em readPDF) porque no layout do DANFE o rótulo de
+  // um campo e o respectivo valor frequentemente ficam em linhas/colunas
+  // diferentes — uma busca só por regex no texto corrido tende a casar o
+  // valor errado (ex.: outro número/coluna vizinha).
+  const lines = fullText.split("\n");
   const info = {};
 
-  const nfMatch = fullText.match(/N[°º\.]?\s*(?:DA\s*NF-?E)?[:\s]*(\d{2,4}[.\s]?\d{3,6})/i)
-    || fullText.match(/N[ÚU]MERO[:\s]*(\d+)/i);
-  if (nfMatch) info.numero = nfMatch[1].replace(/\s+/g, "");
+  // NÚMERO DA NF — aceita "Nº", "N°", "No" seguido de dígitos com pontos.
+  const numeroMatch = fullText.match(/N[ºo°]+\.?\s*(\d[\d.\s]{3,}\d)/i);
+  if (numeroMatch) info.numero = numeroMatch[1].replace(/\s+/g, "").trim();
 
-  const serieMatch = fullText.match(/S[ÉE]RIE[:\s]*(\d{1,3})/i);
+  // SÉRIE
+  const serieMatch = fullText.match(/S[ée]rie\s*(\d{1,4})/i);
   if (serieMatch) info.serie = serieMatch[1];
 
-  const dataMatch = fullText.match(/DATA\s*(?:DA\s*)?EMISS[ÃA]O[:\s]*(\d{2}\/\d{2}\/\d{4})/i)
-    || fullText.match(/EMISS[ÃA]O[:\s]*(\d{2}\/\d{2}\/\d{4})/i);
+  // DATA DE EMISSÃO
+  const dataMatch = fullText.match(/EMISS[ÃA]O[:\s]+(\d{2}\/\d{2}\/\d{4})/i);
   if (dataMatch) info.dataEmissao = dataMatch[1];
 
-  const cnpjMatch = fullText.match(/CNPJ[:\s]*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/i);
-  if (cnpjMatch) info.cnpj = cnpjMatch[1];
+  // CNPJ formatado (##.###.###/####-##) — primeira ocorrência do documento,
+  // que no layout padrão do DANFE corresponde ao emitente (fornecedor),
+  // pois esse bloco aparece antes do destinatário/transportador na página.
+  const cnpjMatch = fullText.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
+  if (cnpjMatch) info.cnpj = cnpjMatch[0];
 
-  const razaoMatch = fullText.match(/RAZ[ÃA]O\s*SOCIAL[:\s]*([A-ZÀ-Ú0-9.,\-\/&\s]{4,60})/i);
-  if (razaoMatch) info.razaoSocial = razaoMatch[1].trim().split("\n")[0];
+  // RAZÃO SOCIAL do emitente — procura a primeira linha "plausível" de
+  // nome de empresa nas linhas seguintes ao rótulo "EMITENTE", ignorando
+  // rótulos conhecidos do cabeçalho do DANFE (título, chave de acesso etc.)
+  // que podem aparecer intercalados por estarem em uma coluna vizinha.
+  const emitenteIdx = lines.findIndex((l) => normKeyword(l).includes("EMITENTE"));
+  if (emitenteIdx !== -1){
+    const blacklist = /DANFE|DOCUMENTO AUXILIAR|FISCAL ELETRONICA|ENTRADA|SAIDA|CHAVE DE ACESSO|CONSULTA DE AUTENTICIDADE|FOLHA|NATUREZA DA OPERACAO|PROTOCOLO/;
+    for (let i = emitenteIdx + 1; i < Math.min(lines.length, emitenteIdx + 8); i++){
+      const line = lines[i].trim();
+      if (!line || line.length < 4) continue;
+      const upper = normKeyword(line);
+      if (blacklist.test(upper)) continue;
+      if (/^N[ºo°]/i.test(line) || /^S[ée]rie/i.test(line)) continue;
+      info.razaoSocial = line;
+      break;
+    }
+  }
 
   return Object.keys(info).length ? info : null;
 }
@@ -828,6 +873,10 @@ function consolidateProducts(products){
   const map = new Map();
 
   for (const p of products){
+    // segunda camada de proteção: só mantém produtos com código, ou
+    // descrição + quantidade válida (ver mesma regra em parseProductsByColumns).
+    if (!p.referencia && !(p.descricao && p.quantidade !== null)) continue;
+
     const refNorm = normalizeReference(p.referencia) || "(sem referência)";
     if (!map.has(refNorm)){
       map.set(refNorm, {
@@ -1035,7 +1084,7 @@ function exportCSV(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "conferencia-nf.csv";
+  a.download = buildExportFilename() + ".csv";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1046,6 +1095,81 @@ function csvEscape(value){
   const str = String(value ?? "");
   if (/[",\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
   return str;
+}
+
+// Exporta um arquivo .xlsx com a lista de referências consolidadas e,
+// quando disponíveis, os dados complementares da nota em uma segunda aba.
+function exportExcel(){
+  const list = getFilteredSorted();
+  if (!list.length) return;
+
+  if (typeof XLSX === "undefined"){
+    showError("Não foi possível carregar o módulo de exportação para Excel. Verifique sua conexão e tente novamente.");
+    return;
+  }
+
+  const header = ["Referência", "Descrição", "Quantidade", "Unidade"];
+  const rows = list.map((p) => [
+    p.referencia,
+    p.descricao || "",
+    p.quantidadeValida ? p.quantidade : (p.quantidade ?? ""),
+    p.unidade || "",
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  const wsProdutos = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  wsProdutos["!cols"] = [{ wch: 16 }, { wch: 40 }, { wch: 14 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsProdutos, "Produtos");
+
+  const totals = calculateTotals(state.consolidated);
+  const infoRows = [];
+
+  if (state.nfInfo){
+    const labels = {
+      numero: "Número da NF",
+      serie: "Série",
+      dataEmissao: "Data de emissão",
+      cnpj: "CNPJ do fornecedor",
+      razaoSocial: "Razão social",
+    };
+    Object.entries(labels).forEach(([key, label]) => {
+      if (state.nfInfo[key]) infoRows.push([label, state.nfInfo[key]]);
+    });
+  }
+
+  infoRows.push(["Linhas encontradas", totals.linhas]);
+  infoRows.push(["Referências únicas", totals.refs]);
+  infoRows.push([
+    "Quantidade total",
+    totals.qtdValida ? totals.qtdTotal : totals.qtdTotal + " (*)",
+  ]);
+
+  const wsInfo = XLSX.utils.aoa_to_sheet([["Campo", "Valor"], ...infoRows]);
+  wsInfo["!cols"] = [{ wch: 22 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, wsInfo, "Dados da Nota");
+
+  XLSX.writeFile(wb, buildExportFilename() + ".xlsx");
+}
+
+// Monta o nome do arquivo exportado como "<primeiro nome da razão
+// social>_<número da NF sem zeros à esquerda>", por exemplo
+// "SIMOLDES_419136". Cai para um nome padrão quando os dados da nota
+// não foram identificados com segurança.
+function buildExportFilename(){
+  const info = state.nfInfo;
+  if (!info || !info.razaoSocial || !info.numero) return "conferencia-nf";
+
+  const primeiroNome = sanitizeFilenamePart(info.razaoSocial.trim().split(/\s+/)[0]);
+  const numeroLimpo = info.numero.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+
+  if (!primeiroNome || !numeroLimpo) return "conferencia-nf";
+  return `${primeiroNome}_${numeroLimpo}`;
+}
+
+function sanitizeFilenamePart(str){
+  return stripAccents(str || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 }
 
 function copyList(){
@@ -1128,6 +1252,7 @@ function init(){
   setupSearch();
   setupSort();
   document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
+  document.getElementById("btnExportExcel").addEventListener("click", exportExcel);
   document.getElementById("btnCopyList").addEventListener("click", copyList);
   document.getElementById("btnNovaNota").addEventListener("click", resetApp);
 }
