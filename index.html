@@ -6,6 +6,30 @@
 <title>Conferência de Nota Fiscal</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     FIREBASE (envio para a nuvem — integração com o RecebeMais)
+     Substitua os valores abaixo pelas credenciais do SEU projeto
+     Firebase (mesmo projeto usado no RecebeMais). Console:
+     https://console.firebase.google.com → Project settings → SDK setup.
+════════════════════════════════════════════════════════════════ -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBTjq1CzNj_wm6xwFLDEUbGGYNpFDxfe6A",
+    authDomain: "recebemais-340ea.firebaseapp.com",
+    projectId: "recebemais-340ea",
+    storageBucket: "recebemais-340ea.firebasestorage.app",
+    messagingSenderId: "154000900066",
+    appId: "1:154000900066:web:677ed6caeeb633cc1783bb"
+  };
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+  }catch(e){
+    console.error('Firebase init falhou (verifique FIREBASE_CONFIG):', e);
+  }
+</script>
 <style>
 /* ===================== RESET / BASE ===================== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -131,6 +155,8 @@ button:disabled{ opacity: 0.5; cursor: not-allowed; }
 .btn-ghost:hover:not(:disabled){ background: #f3f5f7; }
 .btn-danger{ background: #fff; color: var(--danger); border-color: var(--danger); }
 .btn-danger:hover:not(:disabled){ background: #fdf1ee; }
+.btn-accent{ background: var(--accent); color: #fff; }
+.btn-accent:hover:not(:disabled){ background: #26845c; }
 
 .actions-row{
   display: flex;
@@ -352,8 +378,10 @@ footer.app-footer{
           <button class="btn-secondary" id="btnExportCSV" type="button">Exportar CSV</button>
           <button class="btn-secondary" id="btnExportExcel" type="button">Exportar Excel</button>
           <button class="btn-secondary" id="btnCopyList" type="button">Copiar lista</button>
+          <button class="btn-accent" id="btnEnviarNuvem" type="button">&#9729; Enviar</button>
           <button class="btn-danger" id="btnNovaNota" type="button">Nova Nota</button>
         </div>
+        <div class="cloud-status" id="cloudStatus" style="display:none;margin-top:10px;font-size:.82rem"></div>
       </div>
 
       <div class="table-wrap">
@@ -1187,6 +1215,81 @@ function copyList(){
 }
 
 /* =====================================================================
+   ENVIO PARA A NUVEM (integração com o RecebeMais)
+   Publica a lista consolidada em uma coleção "pendentes" no Firestore.
+   O RecebeMais escuta essa coleção em tempo real e mostra um badge no
+   ícone de nuvem — o usuário escolhe a NF lá e inicia a contagem às
+   cegas sem precisar importar planilha manualmente.
+   ===================================================================== */
+function buildCloudPayload(){
+  const produtos = state.consolidated.map((p) => ({
+    referencia: p.referencia,
+    descricao: p.descricao || "",
+    quantidade: p.quantidadeValida ? p.quantidade : (p.quantidade ?? 0),
+    unidade: p.unidade || "",
+  }));
+
+  const info = state.nfInfo || {};
+  const labels = {
+    numero: "Número da NF",
+    serie: "Série",
+    dataEmissao: "Data de emissão",
+    cnpj: "CNPJ do fornecedor",
+    razaoSocial: "Razão social",
+  };
+  const raw = [];
+  Object.entries(labels).forEach(([key, label]) => {
+    if (info[key]) raw.push({ campo: label, valor: info[key] });
+  });
+
+  return {
+    nf: info.numero || "",
+    forn: info.razaoSocial || "",
+    cnpj: info.cnpj || "",
+    produtos,
+    raw,
+  };
+}
+
+function setCloudStatus(text, kind){
+  const el = document.getElementById("cloudStatus");
+  if (!el) return;
+  if (!text){ el.style.display = "none"; el.textContent = ""; return; }
+  el.style.display = "block";
+  el.style.color = kind === "error" ? "var(--danger)" : (kind === "ok" ? "var(--accent)" : "var(--text-mute)");
+  el.textContent = text;
+}
+
+async function enviarParaNuvem(){
+  if (!state.consolidated.length){
+    showError("Não há produtos para enviar. Processe uma NF primeiro.");
+    return;
+  }
+  if (typeof firebase === "undefined" || !firebase.apps || !firebase.apps.length){
+    setCloudStatus("Conexão com a nuvem não configurada (verifique FIREBASE_CONFIG no código-fonte).", "error");
+    return;
+  }
+
+  const btn = document.getElementById("btnEnviarNuvem");
+  if (btn){ btn.disabled = true; btn.textContent = "Enviando..."; }
+  setCloudStatus("Enviando para a nuvem...");
+
+  try{
+    const payload = buildCloudPayload();
+    await firebase.firestore().collection("pendentes").add({
+      ...payload,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    setCloudStatus("✓ Enviado — já disponível no ícone de nuvem do RecebeMais.", "ok");
+  }catch(err){
+    console.error("Enviar para nuvem:", err);
+    setCloudStatus("Falha ao enviar para a nuvem. Verifique sua conexão e tente novamente.", "error");
+  }finally{
+    if (btn){ btn.disabled = false; btn.innerHTML = "&#9729; Enviar"; }
+  }
+}
+
+/* =====================================================================
    NOVA NOTA
    ===================================================================== */
 function resetApp(){
@@ -1255,6 +1358,7 @@ function init(){
   document.getElementById("btnExportExcel").addEventListener("click", exportExcel);
   document.getElementById("btnCopyList").addEventListener("click", copyList);
   document.getElementById("btnNovaNota").addEventListener("click", resetApp);
+  document.getElementById("btnEnviarNuvem").addEventListener("click", enviarParaNuvem);
 }
 init();
 </script>
