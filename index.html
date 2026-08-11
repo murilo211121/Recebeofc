@@ -6,6 +6,7 @@
 <title>Conferência de Nota Fiscal</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
@@ -280,6 +281,36 @@ tbody tr:hover{ background: #fafcfe; }
 td.num, th.num{ text-align: right; }
 td.ref{ font-family: var(--mono); font-weight: 600; }
 td.notas{ font-size: 0.78rem; color: var(--text-mute); font-family: var(--mono); }
+
+/* ===================== EDIÇÃO INLINE (referência/descrição) ===================== */
+.editable-cell{ display: flex; align-items: flex-start; gap: 6px; }
+.editable-cell .cell-text{ flex: 1; min-width: 0; word-break: break-word; }
+.btn-edit-icon{
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-mute);
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 5px;
+  opacity: 0.55;
+}
+.btn-edit-icon:hover{ opacity: 1; background: #f3f5f7; color: var(--primary); }
+.edit-field-wrap{ display: flex; flex-direction: column; gap: 6px; }
+.edit-field-wrap input, .edit-field-wrap textarea{
+  width: 100%;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+}
+.edit-field-wrap input{ font-family: var(--mono); }
+.edit-field-actions{ display: flex; gap: 6px; }
+.edit-field-actions button{ padding: 5px 10px; font-size: 0.76rem; }
 .badge-warn{
   display: inline-block;
   background: #fdf6ea;
@@ -404,7 +435,7 @@ footer.app-footer{
 
   <footer class="app-footer">
     Processamento 100% local no navegador &middot; nenhum arquivo é enviado a servidores &middot;
-    OCR ainda não implementado nesta versão (ver observação no código-fonte)
+    OCR automático via Tesseract.js quando o PDF não tem texto extraível
   </footer>
 
 </div>
@@ -426,12 +457,21 @@ const HEADER_KEYWORDS = {
   ncm:      ["NCM/SH", "NCM"],
   cst:      ["CST", "CSOSN"],
   cfop:     ["CFOP"],
-  unidade:  ["UNID", "UN"],
+  // A coluna de unidade costuma ter um cabeçalho bem curto (UN, UND, UM,
+  // UNID) — por isso é comparada por igualdade exata (ver
+  // detectHeaderColumns), nunca por "contém", para não casar por engano
+  // com palavras maiores que também têm essas letras (ex.: "UN" dentro
+  // de "V. UNITÁRIO").
+  unidade:  ["UNID", "UND", "UN", "UM", "UD"],
   quantidade:["QUANT", "QTDE", "QTD"],
-  vlUnit:   ["VL.UNIT", "VALOR UNIT", "VLR UNIT", "V.UNIT", "VUNIT", "V.UNITARIO"],
-  vlTotal:  ["VL.TOTAL", "VALOR TOTAL", "VLR TOTAL", "V.TOTAL", "VTOTAL"],
+  vlUnit:   ["VL.UNIT", "VALOR UNIT", "VLR UNIT", "V.UNIT", "VUNIT", "V.UNITARIO", "V. UNITARIO", "V UNITARIO", "V. UNIT"],
+  vlTotal:  ["VL.TOTAL", "VALOR TOTAL", "VLR TOTAL", "V.TOTAL", "VTOTAL", "V. TOTAL", "V TOTAL"],
   ean:      ["EAN", "GTIN", "CODIGO DE BARRAS"],
 };
+// Campos cujo cabeçalho deve casar por IGUALDADE EXATA (após normalizar
+// acentos/caixa), nunca por "contém" — evita falsos positivos quando o
+// rótulo é curto/genérico e aparece como substring de outra coluna.
+const EXACT_MATCH_FIELDS = new Set(["unidade"]);
 
 // Marcadores de "ruído" da tabela que não são produtos: o título da
 // seção ("DADOS DO(S) PRODUTO(S) / SERVIÇO(S)") e o próprio cabeçalho de
@@ -452,6 +492,7 @@ const FOOTER_KEYWORDS = [
   "INFORMACOES COMPLEMENTARES", "RESERVADO AO FISCO",
   "TRANSPORTADOR", "DADOS DO TRANSPORTE", "FATURA", "DUPLICATA",
   "IMPRESSO EM", "GERENCIADAS PELA", "POWERED BY",
+  "BASE DE CALCULO", "AUTENTICIDADE",
 ];
 
 const Y_TOLERANCE = 2.2; // tolerância (pt) para agrupar itens na mesma linha
@@ -467,7 +508,11 @@ const state = {
   sortKey: "referencia",
   sortDir: 1,
   searchTerm: "",
+  editing: null,        // { uid, field: 'referencia' | 'descricao' } — célula em edição, se houver
 };
+
+let _uidCounter = 0;
+function nextUid(){ return ++_uidCounter; }
 
 /* =====================================================================
    UPLOAD
@@ -558,7 +603,13 @@ async function processAllFiles(files){
     const prefixo = files.length > 1 ? `Arquivo ${i + 1}/${files.length}: ` : "";
     try{
       setProcessing(true, "Lendo documento...", `${prefixo}Abrindo ${file.name} no navegador.`);
-      const { rows, fullText } = await readPDF(file);
+      const { rows, fullText, usouOCR } = await readPDF(file, (pagina, total) => {
+        setProcessing(
+          true,
+          "Lendo por OCR...",
+          `${prefixo}Nenhum texto encontrado nesta página — lendo como imagem (página ${pagina}/${total}). Pode levar alguns segundos.`
+        );
+      });
 
       setProcessing(true, "Extraindo produtos...", `${prefixo}Procurando a(s) tabela(s) de produtos.`);
       await sleep(30);
@@ -582,7 +633,10 @@ async function processAllFiles(files){
             products: [],
             linhas: 0,
             erro: true,
-            errorMsg: "Não foi possível identificar os produtos nesta nota.",
+            usouOCR,
+            errorMsg: usouOCR
+              ? "Não foi possível identificar os produtos nesta nota, mesmo após tentar OCR (a imagem pode estar ilegível ou o layout é muito diferente)."
+              : "Não foi possível identificar os produtos nesta nota.",
           });
           continue;
         }
@@ -594,6 +648,7 @@ async function processAllFiles(files){
           linhas: extraction.products.length,
           missingRef: extraction.missingRef,
           missingQty: extraction.missingQty,
+          usouOCR,
           erro: false,
         });
       }
@@ -605,7 +660,9 @@ async function processAllFiles(files){
         products: [],
         linhas: 0,
         erro: true,
-        errorMsg: "Não foi possível ler este PDF. Verifique se não está corrompido ou protegido.",
+        errorMsg: /OCR/i.test(err.message || "")
+          ? err.message
+          : "Não foi possível ler este PDF. Verifique se não está corrompido ou protegido.",
       });
     }
   }
@@ -660,13 +717,22 @@ function sleep(ms){ return new Promise((r) => setTimeout(r, ms)); }
 // Divide as linhas de um PDF em "notas lógicas": um mesmo arquivo pode
 // conter mais de uma NF-e (por exemplo, quando o emissor exporta várias
 // notas de uma mesma carga em um único PDF). O cabeçalho do canhoto de
+// "RECEBEMOS DE ... OS PRODUTOS" e variações ("RECEBI(EMOS) DE ...") são
+// o cabeçalho do canhoto de recebimento, que aparece uma única vez no
+// início de cada NF-e — usado tanto para dividir um PDF com várias
+// notas quanto para identificar o fornecedor (ver extractNFHeaderInfo).
+const RECEBEMOS_RE = /RECEB[A-Za-zÀ-ú()]*\s+DE\b/i;
+function looksLikeRecebemosHeader(text){
+  return RECEBEMOS_RE.test(text || "");
+}
+
 // recebimento ("RECEBEMOS DE... NOTA FISCAL INDICADA...") aparece uma
 // única vez por nota, sempre na primeira página daquela nota — por isso
 // é usado como marcador de início de cada nota dentro do arquivo.
 function splitRowsIntoNotes(rows){
   const boundaries = [];
   rows.forEach((row, idx) => {
-    if (normKeyword(row.text).includes("RECEBEMOS DE")) boundaries.push(idx);
+    if (looksLikeRecebemosHeader(row.text)) boundaries.push(idx);
   });
 
   if (!boundaries.length) return [rows];
@@ -688,12 +754,13 @@ function splitRowsIntoNotes(rows){
    uma tabela de DANFE sem depender de coordenadas fixas de um layout
    específico.
    ===================================================================== */
-async function readPDF(file){
+async function readPDF(file, onProgress){
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
 
   const rows = [];       // [{ page, y, items:[{str,x,w}] }, ...]
   const textLines = [];  // texto simples por linha, para regex globais (NF, CNPJ, etc.)
+  let usouOCR = false;
 
   for (let p = 1; p <= pdf.numPages; p++){
     const page = await pdf.getPage(p);
@@ -708,17 +775,25 @@ async function readPDF(file){
         w: it.width || (it.str.length * 4),
       }));
 
-    // agrupa por Y (linha)
-    items.sort((a, b) => b.y - a.y || a.x - b.x);
-    let currentRow = null;
-    for (const it of items){
-      if (currentRow && Math.abs(currentRow.y - it.y) <= Y_TOLERANCE){
-        currentRow.items.push(it);
-      } else {
-        currentRow = { page: p, y: it.y, items: [it] };
-        rows.push(currentRow);
-      }
+    let pageRows;
+
+    // Tentativa 1: texto real embutido no PDF (rápido e preciso).
+    if (items.length >= 5){
+      pageRows = groupItemsIntoRows(items, p);
+    } else {
+      // Tentativa 2 (OCR): o PDF não tem texto extraível nesta página —
+      // acontece com notas escaneadas ou geradas com o texto desenhado
+      // como vetor/imagem, sem nenhum objeto de fonte real embutido. Em
+      // vez de desistir, a página é renderizada como imagem em alta
+      // resolução e lida via OCR (Tesseract.js), inteiramente no
+      // navegador. Como OCR pode errar dígitos, todo produto vindo dessa
+      // via é marcado como baixa confiança para revisão manual.
+      if (onProgress) onProgress(p, pdf.numPages);
+      pageRows = await ocrExtractRowsFromPage(page, p);
+      usouOCR = true;
     }
+
+    rows.push(...pageRows);
   }
 
   // ordena itens de cada linha por X e monta texto plano por linha
@@ -728,8 +803,67 @@ async function readPDF(file){
     textLines.push(row.text);
   }
 
-  return { rows, fullText: textLines.join("\n") };
+  return { rows, fullText: textLines.join("\n"), usouOCR };
 }
+
+// Agrupa itens de texto (já com posição x,y) em "linhas" com base na
+// coordenada Y — mesma lógica usada tanto para texto nativo do PDF
+// quanto para os resultados do OCR.
+function groupItemsIntoRows(items, pageNum, tolerance){
+  const tol = tolerance || Y_TOLERANCE;
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows = [];
+  let currentRow = null;
+  for (const it of sorted){
+    if (currentRow && Math.abs(currentRow.y - it.y) <= tol){
+      currentRow.items.push(it);
+    } else {
+      currentRow = { page: pageNum, y: it.y, items: [it] };
+      rows.push(currentRow);
+    }
+  }
+  return rows;
+}
+
+// OCR de fallback: renderiza a página como imagem (escala alta, já que
+// texto vetorizado renderiza muito mais nítido que um scan de papel real
+// — dá pra usar uma resolução maior sem custo de qualidade) e lê com
+// Tesseract.js. Usa a estrutura de "linhas" que o próprio Tesseract já
+// devolve (mais confiável que tentar reagrupar palavra por palavra), e
+// inverte o eixo Y da imagem (que cresce para baixo) para o mesmo
+// sentido usado no texto nativo do PDF (que cresce para cima), mantendo
+// o resto do pipeline de extração idêntico nos dois casos.
+async function ocrExtractRowsFromPage(page, pageNum){
+  if (typeof Tesseract === "undefined"){
+    throw new Error("Biblioteca de OCR não carregou (verifique a conexão com a internet).");
+  }
+
+  const scale = 3; // resolução alta: texto vetorizado renderiza nítido e sem ruído de scanner
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext("2d");
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  const { data } = await Tesseract.recognize(canvas, "por");
+
+  const lines = (data && data.lines) || [];
+  const rows = lines
+    .filter((line) => line.text && line.text.trim().length > 0)
+    .map((line) => ({
+      page: pageNum,
+      y: -line.bbox.y0,
+      ocr: true,
+      items: (line.words || [])
+        .filter((w) => w.text && w.text.trim().length > 0)
+        .map((w) => ({ str: w.text, x: w.bbox.x0, y: -line.bbox.y0, w: w.bbox.x1 - w.bbox.x0, ocr: true })),
+    }))
+    .filter((row) => row.items.length > 0);
+
+  return rows;
+}
+
 
 /* =====================================================================
    EXTRAÇÃO (localização da tabela) + PARSER DA NF
@@ -768,15 +902,20 @@ function detectHeaderColumns(rows){
     let matches = 0;
     const found = {}; // campo -> x do item
     for (const item of row.items){
-      const upperItem = normKeyword(item.str);
+      const upperItem = normKeyword(item.str).trim();
       for (const field in HEADER_KEYWORDS){
         if (found[field] !== undefined) continue;
+        const exact = EXACT_MATCH_FIELDS.has(field);
         for (const kw of HEADER_KEYWORDS[field]){
           // o casamento precisa ocorrer DENTRO do próprio item de texto,
           // nunca apenas na linha inteira — caso contrário a coluna
           // herdaria a posição X de um item qualquer da linha (bug crítico
-          // que colapsava todas as colunas na mesma posição).
-          if (upperItem.includes(kw)){
+          // que colapsava todas as colunas na mesma posição). Para campos
+          // com rótulo curto/genérico (ver EXACT_MATCH_FIELDS), exige
+          // igualdade exata em vez de "contém", para não casar por engano
+          // com uma palavra maior que contenha essas mesmas letras.
+          const bateu = exact ? upperItem === kw : upperItem.includes(kw);
+          if (bateu){
             found[field] = item.x;
             matches++;
             break;
@@ -876,7 +1015,7 @@ function parseProductsByColumns(rows, header){
     // começando (não uma continuação da mesma nota em outra página) — e
     // aí é preciso parar de vez, para nunca misturar produtos de duas
     // notas diferentes (ver seção 19 do prompt original).
-    if (normKeyword(row.text).includes("RECEBEMOS DE")) break;
+    if (looksLikeRecebemosHeader(row.text)) break;
 
     if (!inTable){
       if (looksLikeTableNoise(row.text)) inTable = true;
@@ -932,10 +1071,20 @@ function parseProductsByColumns(rows, header){
       if (quantidadeReal !== null) quantidade = quantidadeReal;
     }
 
+    // Texto vindo de OCR é mais "solto" que o texto nativo do PDF — não
+    // tem a mesma precisão posicional, então trechos de outras seções da
+    // nota (dígitos da chave de acesso, código da natureza da operação,
+    // etc.) podem acabar caindo dentro do intervalo de linhas da tabela.
+    // Por isso, para linhas vindas de OCR, exige-se que a referência
+    // pareça mesmo um código de produto (pelo menos 6 caracteres) antes
+    // de aceitá-la — do contrário ela é descartada como ruído.
+    if (row.ocr && referencia && (referencia.length < 6 || !/\d/.test(referencia))){
+      referencia = "";
+    }
+
     // uma linha de produto real de NF-e sempre tem código, ou então
     // descrição + quantidade válida juntos. Uma linha só com descrição
     // solta (sem código e sem quantidade) normalmente é a CONTINUAÇÃO da
-    // descrição do produto anterior — algumas DANFEs quebram a descrição
     // descrição do produto anterior — algumas DANFEs quebram a descrição
     // em duas linhas visuais quando ela é longa (ex.: "PORTA MAPAS DIAN
     // DIR BL" na primeira linha e "ACK TITAN" na linha seguinte). Nesse
@@ -960,6 +1109,7 @@ function parseProductsByColumns(rows, header){
       vlUnit: parseBRNumber(cells.vlUnit),
       vlTotal: parseBRNumber(cells.vlTotal),
       rawLine: row.text,
+      viaOCR: !!row.ocr,
     });
   }
   return products;
@@ -977,6 +1127,7 @@ function parseProductsByPattern(rows){
 
   for (const row of rows){
     if (rowIsFooter(row.text)) continue;
+    if (looksLikeTableNoise(row.text)) continue;
     const tokens = row.items.map((it) => it.str);
     if (tokens.length < 3) continue;
 
@@ -984,6 +1135,11 @@ function parseProductsByPattern(rows){
     if (!codeRe.test(first)) continue;
     // evita capturar cabeçalhos/rótulos comuns
     if (/^(NF|CNPJ|CPF|DANFE|SERIE|DATA)$/i.test(first)) continue;
+    // em linhas vindas de OCR, exige um código mais "parecido com
+    // produto" (mesmo motivo do comentário em parseProductsByColumns) —
+    // esse método de reserva já é mais solto por natureza, então em OCR
+    // fica ainda mais importante essa trava.
+    if (row.ocr && (first.trim().length < 6 || !/\d/.test(first))) continue;
 
     const numbers = row.text.match(numberRe) || [];
     if (numbers.length < 2) continue; // precisa de ao menos qtd + 1 valor
@@ -1014,6 +1170,7 @@ function parseProductsByPattern(rows){
       ncm: "", cfop: "", ean: "",
       vlUnit: null, vlTotal: null,
       rawLine: row.text,
+      viaOCR: !!row.ocr,
     });
   }
   return products;
@@ -1056,16 +1213,25 @@ function extractNFHeaderInfo(fullText){
   const lines = fullText.split("\n");
   const info = {};
 
-  // NÚMERO DA NF — aceita "Nº", "N°", "No" seguido de dígitos com pontos.
-  const numeroMatch = fullText.match(/N[ºo°]+\.?\s*(\d[\d.\s]{3,}\d)/i);
+  // NÚMERO DA NF — aceita "Nº"/"N°" (símbolo), "N." (abreviação com
+  // ponto) ou a palavra "NÚMERO"/"NUMERO" por extenso. Importante: NÃO
+  // aceita a letra solta "o"/"O" como se fosse o símbolo de ordinal —
+  // isso gerava falsos positivos em textos como "LEI NO 10.637" (onde
+  // "NO" é a palavra "no", não "Nº").
+  // "N[Oo]\." cobre a abreviação "No." (com a letra O normal, sem o
+  // símbolo de ordinal) — usada por alguns emissores. Continua seguro
+  // contra o falso positivo de "LEI NO 10.637" porque ali não há ponto
+  // colado direto após o "NO" (tem espaço antes do número).
+  const numeroMatch = fullText.match(/(?:N[º°]\.?|N\.|N[Oo]\.|N[ÚU]MERO[:\s]*)\s*(\d[\d.\s]{3,}\d)/i);
   if (numeroMatch) info.numero = numeroMatch[1].replace(/\s+/g, "").trim();
 
   // SÉRIE
-  const serieMatch = fullText.match(/S[ée]rie\s*(\d{1,4})/i);
+  const serieMatch = fullText.match(/S[ée]rie[:\s]*(\d{1,4})/i);
   if (serieMatch) info.serie = serieMatch[1];
 
   // DATA DE EMISSÃO
-  const dataMatch = fullText.match(/EMISS[ÃA]O[:\s]+(\d{2}\/\d{2}\/\d{4})/i);
+  const dataMatch = fullText.match(/EMISS[ÃA]O[:\s]+(\d{2}\/\d{2}\/\d{4})/i)
+    || fullText.match(/DATA DA EMISS[ÃA]O[:\s]*\n?(\d{2}\/\d{2}\/\d{4})/i);
   if (dataMatch) info.dataEmissao = dataMatch[1];
 
   // CNPJ formatado (##.###.###/####-##, tolerando espaços ao redor do
@@ -1076,32 +1242,42 @@ function extractNFHeaderInfo(fullText){
   const cnpjMatch = fullText.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}\s*-\s*\d{2}/);
   if (cnpjMatch) info.cnpj = cnpjMatch[0].replace(/\s+/g, "");
 
-  // RAZÃO SOCIAL do emitente — procura a primeira linha "plausível" de
-  // nome de empresa nas linhas seguintes ao rótulo "EMITENTE", ignorando
-  // rótulos conhecidos do cabeçalho do DANFE (título, chave de acesso etc.)
-  // que podem aparecer intercalados por estarem em uma coluna vizinha. Em
-  // alguns layouts essa coluna fica bem próxima de outra (ex.: título do
-  // DANFE, chave de acesso) e pode aparecer misturada na mesma linha —
-  // por isso o resultado é validado antes de aceitar, para nunca exibir
-  // um texto claramente inválido em vez de simplesmente omitir o campo.
-  const emitenteIdx = lines.findIndex((l) => normKeyword(l).includes("EMITENTE"));
-  if (emitenteIdx !== -1){
-    const blacklist = /DANFE|DOCUMENTO AUXILIAR|FISCAL ELETRONICA|ENTRADA|SAIDA|CHAVE DE ACESSO|CONSULTA DE AUTENTICIDADE|FOLHA|NATUREZA DA OPERACAO|PROTOCOLO/;
-    for (let i = emitenteIdx + 1; i < Math.min(lines.length, emitenteIdx + 8); i++){
-      const line = lines[i].trim();
-      if (!line || line.length < 4) continue;
-      const upper = normKeyword(line);
-      if (blacklist.test(upper)) continue;
-      if (/^N[ºo°]/i.test(line) || /^S[ée]rie/i.test(line)) continue;
-      if (!looksLikeCompanyName(line)) continue;
-      info.razaoSocial = line;
-      break;
+  // RAZÃO SOCIAL do emitente — o canhoto de recebimento de toda DANFE
+  // sempre começa com a frase padrão "RECEBEMOS DE <EMITENTE> OS
+  // PRODUTOS...", numa única linha inteira, larga o suficiente para não
+  // se misturar com colunas vizinhas (diferente do bloco "IDENTIFICAÇÃO
+  // DO EMITENTE", que em vários layouts aparece ao lado do título do
+  // DANFE/logo e acaba embaralhado). Por isso essa é a fonte MUITO mais
+  // confiável para o nome do fornecedor.
+  // Aceita variações como "RECEBEMOS DE" e "RECEBI(EMOS) DE", e permite
+  // uma vírgula opcional antes de "OS PRODUTOS" (alguns emissores
+  // pontuam a frase de forma diferente).
+  const recebemosMatch = fullText.match(/RECEB[\wÀ-ú()]*\s+DE\s+(.+?),?\s+OS PRODUTOS/i);
+  if (recebemosMatch && looksLikeCompanyName(recebemosMatch[1].trim())){
+    info.razaoSocial = recebemosMatch[1].trim();
+  }
+
+  // Reforço 1: bloco "IDENTIFICAÇÃO DO EMITENTE" (método anterior),
+  // usado apenas se a frase do canhoto acima não tiver sido encontrada.
+  if (!info.razaoSocial){
+    const emitenteIdx = lines.findIndex((l) => normKeyword(l).includes("EMITENTE"));
+    if (emitenteIdx !== -1){
+      const blacklist = /DANFE|DOCUMENTO AUXILIAR|FISCAL ELETRONICA|ENTRADA|SAIDA|CHAVE DE ACESSO|CONSULTA DE AUTENTICIDADE|FOLHA|NATUREZA DA OPERACAO|PROTOCOLO/;
+      for (let i = emitenteIdx + 1; i < Math.min(lines.length, emitenteIdx + 8); i++){
+        const line = lines[i].trim();
+        if (!line || line.length < 4) continue;
+        const upper = normKeyword(line);
+        if (blacklist.test(upper)) continue;
+        if (/^N[ºo°]/i.test(line) || /^S[ée]rie/i.test(line)) continue;
+        if (!looksLikeCompanyName(line)) continue;
+        info.razaoSocial = line;
+        break;
+      }
     }
   }
 
-  // Reforço: se a razão social não foi identificada com segurança pelo
-  // método acima, tenta um fornecedor conhecido pelo CNPJ (ver
-  // FORNECEDORES_CONHECIDOS_POR_CNPJ).
+  // Reforço 2: fornecedor conhecido pelo CNPJ (ver
+  // FORNECEDORES_CONHECIDOS_POR_CNPJ) — última rede de segurança.
   if (!info.razaoSocial && info.cnpj){
     const conhecido = lookupFornecedorPorCnpj(info.cnpj);
     if (conhecido) info.razaoSocial = conhecido;
@@ -1169,6 +1345,7 @@ function consolidateProducts(products){
     const refNorm = normalizeReference(p.referencia) || "(sem referência)";
     if (!map.has(refNorm)){
       map.set(refNorm, {
+        _uid: nextUid(),
         referencia: p.referencia || "(sem referência)",
         descricao: p.descricao || "",
         unidade: p.unidade || "",
@@ -1176,6 +1353,8 @@ function consolidateProducts(products){
         quantidadeValida: true,
         ocorrencias: [],
         lowConfidence: false,
+        editadoManualmente: false,
+        viaOCR: false,
         notas: new Set(),
       });
     }
@@ -1194,6 +1373,15 @@ function consolidateProducts(products){
     }
 
     if (!p.referencia) entry.lowConfidence = true;
+
+    // Itens lidos via OCR nunca são 100% confiáveis como o texto nativo
+    // do PDF (dígitos podem ser lidos errado) — por isso ficam sempre
+    // marcados para revisão manual, mesmo quando código e quantidade
+    // pareceram ser identificados corretamente.
+    if (p.viaOCR){
+      entry.viaOCR = true;
+      entry.lowConfidence = true;
+    }
   }
 
   return Array.from(map.values()).map((entry) => ({
@@ -1229,7 +1417,7 @@ function renderNotesList(){
       const numero = info.numero ? `Nº ${escapeHTML(info.numero)}` : "Nº não identificado";
       const fornecedor = info.razaoSocial ? escapeHTML(info.razaoSocial) : "";
       div.innerHTML = `
-        <span class="note-file">${escapeHTML(nota.fileName)}</span>
+        <span class="note-file">${escapeHTML(nota.fileName)}${nota.usouOCR ? ' <span class="badge-warn" style="background:#eef5fb;color:var(--primary-dark);border-color:#cfe0ee;" title="Esta nota não tinha texto extraível e foi lida via OCR">&#128269; Lida via OCR</span>' : ""}</span>
         <span class="note-num">${numero}</span>
         ${fornecedor ? `<span class="note-fornecedor">${fornecedor}</span>` : ""}
         <span class="note-linhas">${nota.linhas} linha(s)</span>
@@ -1311,14 +1499,112 @@ function renderTable(){
       ? p.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 })
       : (p.quantidade ? p.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 }) : "—");
 
+    const editingRef = state.editing && state.editing.uid === p._uid && state.editing.field === "referencia";
+    const editingDesc = state.editing && state.editing.uid === p._uid && state.editing.field === "descricao";
+
+    const refCell = editingRef
+      ? renderEditFieldHTML(p._uid, "referencia", p.referencia, "input")
+      : `<div class="editable-cell">
+          <span class="cell-text">${escapeHTML(p.referencia)}${p.viaOCR ? '<span class="badge-warn" style="background:#eef5fb;color:var(--primary-dark);border-color:#cfe0ee;" title="Lido via OCR — confira visualmente, dígitos podem sair errados">&#128269; OCR</span>' : ""}${p.lowConfidence ? '<span class="badge-warn" title="Revisão necessária">&#9888; Revisão</span>' : (p.editadoManualmente ? '<span class="badge-warn" style="background:#eefaf3;color:#1f7a4d;border-color:#bfe8d3;" title="Editado manualmente">&#9998; Editado</span>' : "")}</span>
+          <button class="btn-edit-icon" data-uid="${p._uid}" data-field="referencia" title="Editar referência">&#9998;</button>
+        </div>`;
+
+    const descCell = editingDesc
+      ? renderEditFieldHTML(p._uid, "descricao", p.descricao, "textarea")
+      : `<div class="editable-cell">
+          <span class="cell-text">${escapeHTML(p.descricao || "—")}</span>
+          <button class="btn-edit-icon" data-uid="${p._uid}" data-field="descricao" title="Editar descrição">&#9998;</button>
+        </div>`;
+
     tr.innerHTML = `
-      <td class="ref">${escapeHTML(p.referencia)}${p.lowConfidence ? '<span class="badge-warn" title="Revisão necessária">&#9888; Revisão</span>' : ""}</td>
-      <td>${escapeHTML(p.descricao || "—")}</td>
+      <td class="ref">${refCell}</td>
+      <td>${descCell}</td>
       <td class="num">${qtdDisplay}</td>
       <td>${escapeHTML(p.unidade || "—")}</td>
     `;
     tbody.appendChild(tr);
   }
+
+  // liga os cliques dos lápis e dos botões de salvar/cancelar da edição
+  tbody.querySelectorAll(".btn-edit-icon").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.editing = { uid: Number(btn.dataset.uid), field: btn.dataset.field };
+      renderTable();
+    });
+  });
+  tbody.querySelectorAll("[data-action='save-edit']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const uid = Number(btn.dataset.uid);
+      const field = btn.dataset.field;
+      const input = tbody.querySelector(`[data-input-for-uid="${uid}"][data-input-for-field="${field}"]`);
+      saveEdit(uid, field, input ? input.value : "");
+    });
+  });
+  tbody.querySelectorAll("[data-action='cancel-edit']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.editing = null;
+      renderTable();
+    });
+  });
+  tbody.querySelectorAll("[data-input-for-uid]").forEach((input) => {
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && input.tagName !== "TEXTAREA"){
+        e.preventDefault();
+        saveEdit(Number(input.dataset.inputForUid), input.dataset.inputForField, input.value);
+      } else if (e.key === "Escape"){
+        state.editing = null;
+        renderTable();
+      }
+    });
+    input.focus();
+    input.select && input.select();
+  });
+}
+
+// Monta o HTML do campo de edição inline (input para referência, textarea
+// para descrição) com botões de salvar/cancelar.
+function renderEditFieldHTML(uid, field, currentValue, tag){
+  const valueEscaped = escapeAttr(currentValue || "");
+  const fieldEl = tag === "textarea"
+    ? `<textarea data-input-for-uid="${uid}" data-input-for-field="${field}" rows="3">${escapeHTML(currentValue || "")}</textarea>`
+    : `<input type="text" data-input-for-uid="${uid}" data-input-for-field="${field}" value="${valueEscaped}">`;
+
+  return `
+    <div class="edit-field-wrap">
+      ${fieldEl}
+      <div class="edit-field-actions">
+        <button class="btn-primary" type="button" data-action="save-edit" data-uid="${uid}" data-field="${field}">Salvar</button>
+        <button class="btn-ghost" type="button" data-action="cancel-edit" data-uid="${uid}" data-field="${field}">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+
+// Salva a edição manual de referência ou descrição feita pelo usuário —
+// útil quando o fornecedor emite a nota com dados extras (Part Number,
+// lote, datas) misturados na descrição, o que prejudica a contagem às
+// cegas no RecebeMais. A edição é aplicada diretamente no produto
+// consolidado (afeta exportação e envio para o RecebeMais).
+function saveEdit(uid, field, rawValue){
+  const p = state.consolidated.find((item) => item._uid === uid);
+  if (!p) { state.editing = null; renderTable(); return; }
+
+  const value = (rawValue || "").trim();
+
+  if (field === "referencia"){
+    p.referencia = value || "(sem referência)";
+    p.editadoManualmente = true;
+    // se o usuário forneceu uma referência de verdade, a linha deixa de
+    // precisar de revisão por falta de código (a quantidade ainda pode
+    // manter o alerta, se ela própria continuar inválida).
+    if (value) p.lowConfidence = !p.quantidadeValida;
+  } else if (field === "descricao"){
+    p.descricao = value;
+    p.editadoManualmente = true;
+  }
+
+  state.editing = null;
+  renderTable();
 }
 
 function updateSortArrows(){
@@ -1337,6 +1623,12 @@ function escapeHTML(str){
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+// Igual escapeHTML, mas também escapa aspas duplas — necessário para
+// valores inseridos dentro de atributos HTML (ex.: value="...").
+function escapeAttr(str){
+  return escapeHTML(str).replace(/"/g, "&quot;");
 }
 
 /* =====================================================================
@@ -1680,13 +1972,15 @@ function showSuccess(text){
 
 /* =====================================================================
    OBSERVAÇÃO SOBRE OCR
-   Esta primeira versão prioriza a leitura direta do texto do PDF via
-   PDF.js. O fluxo de extração já está preparado com duas tentativas
-   (colunas por posição e padrão por linha), mas nenhuma delas usa OCR.
-   Se o PDF for uma imagem escaneada sem texto selecionável, a extração
-   atual não encontrará produtos. OCR (ex.: Tesseract.js) pode ser
-   adicionado futuramente como uma "Tentativa 3", chamada quando as
-   tentativas 1 e 2 não encontrarem produtos.
+   O fluxo de leitura prioriza sempre o texto real embutido no PDF
+   (rápido e preciso, via PDF.js). Quando uma página não tem nenhum
+   texto extraível — notas escaneadas, ou geradas com o texto desenhado
+   como vetor/imagem em vez de fonte real — a página é renderizada como
+   imagem em alta resolução e lida via OCR (Tesseract.js), inteiramente
+   no navegador (ver ocrExtractRowsFromPage). Como OCR pode errar
+   dígitos, todo produto extraído dessa forma é sempre marcado para
+   revisão manual (badge "🔍 OCR"), nunca tratado como tão confiável
+   quanto o texto nativo do PDF.
    ===================================================================== */
 
 /* =====================================================================
