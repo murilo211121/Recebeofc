@@ -6,30 +6,8 @@
 <title>Conferência de Nota Fiscal</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
-<!-- ═══════════════════════════════════════════════════════════════
-     FIREBASE (envio para a nuvem — integração com o RecebeMais)
-     Substitua os valores abaixo pelas credenciais do SEU projeto
-     Firebase (mesmo projeto usado no RecebeMais). Console:
-     https://console.firebase.google.com → Project settings → SDK setup.
-════════════════════════════════════════════════════════════════ -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script>
-  const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyBTjq1CzNj_wm6xwFLDEUbGGYNpFDxfe6A",
-    authDomain: "recebemais-340ea.firebaseapp.com",
-    projectId: "recebemais-340ea",
-    storageBucket: "recebemais-340ea.firebasestorage.app",
-    messagingSenderId: "154000900066",
-    appId: "1:154000900066:web:677ed6caeeb633cc1783bb"
-  };
-  try{
-    firebase.initializeApp(FIREBASE_CONFIG);
-  }catch(e){
-    console.error('Firebase init falhou (verifique FIREBASE_CONFIG):', e);
-  }
-</script>
 <style>
 /* ===================== RESET / BASE ===================== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -153,10 +131,10 @@ button:disabled{ opacity: 0.5; cursor: not-allowed; }
 .btn-secondary:hover:not(:disabled){ background: #eef5fb; }
 .btn-ghost{ background: transparent; color: var(--text-mute); border-color: var(--border); }
 .btn-ghost:hover:not(:disabled){ background: #f3f5f7; }
+.btn-success{ background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-success:hover:not(:disabled){ background: #268a5f; }
 .btn-danger{ background: #fff; color: var(--danger); border-color: var(--danger); }
 .btn-danger:hover:not(:disabled){ background: #fdf1ee; }
-.btn-accent{ background: var(--accent); color: #fff; }
-.btn-accent:hover:not(:disabled){ background: #26845c; }
 
 .actions-row{
   display: flex;
@@ -196,16 +174,36 @@ button:disabled{ opacity: 0.5; cursor: not-allowed; }
 .msg-info{ background: #eef5fb; color: var(--primary-dark); border: 1px solid #cfe0ee; }
 .msg-success{ background: #eefaf3; color: #1f7a4d; border: 1px solid #bfe8d3; }
 
-/* ===================== NF INFO ===================== */
-#nfInfoPanel{ display: none; }
-#nfInfoPanel.visible{ display: block; }
-.nf-info-grid{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
+/* ===================== NOTAS PROCESSADAS ===================== */
+#notesPanel{ display: none; }
+#notesPanel.visible{ display: block; }
+.notes-title{
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 12px;
 }
-.nf-info-item .label{ font-size: 0.72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-mute); }
-.nf-info-item .value{ font-weight: 600; font-size: 0.92rem; margin-top: 2px; word-break: break-word; }
+.notes-list{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.note-item{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.note-item.note-error{ background: #fdf1ee; border-color: #f2d3c9; }
+.note-item .note-file{ font-weight: 600; color: var(--text); flex: 1 1 100%; font-size: 0.78rem; color: var(--text-mute); }
+.note-item .note-num{ font-family: var(--mono); font-weight: 600; color: var(--primary-dark); }
+.note-item .note-fornecedor{ color: var(--text); }
+.note-item .note-linhas{ color: var(--text-mute); margin-left: auto; white-space: nowrap; }
+.note-item .note-error-msg{ color: var(--danger); font-weight: 600; }
 
 /* ===================== SUMMARY CARDS ===================== */
 #resultsSection{ display: none; }
@@ -281,6 +279,7 @@ tbody tr:last-child td{ border-bottom: none; }
 tbody tr:hover{ background: #fafcfe; }
 td.num, th.num{ text-align: right; }
 td.ref{ font-family: var(--mono); font-weight: 600; }
+td.notas{ font-size: 0.78rem; color: var(--text-mute); font-family: var(--mono); }
 .badge-warn{
   display: inline-block;
   background: #fdf6ea;
@@ -319,21 +318,21 @@ footer.app-footer{
 
   <header class="app-header">
     <h1>Conferência de Nota Fiscal</h1>
-    <p>Importe uma NF-e em PDF e extraia automaticamente as referências e quantidades.</p>
+    <p>Importe uma ou várias NF-e em PDF (de uma mesma carga) e extraia e consolide automaticamente as referências e quantidades.</p>
   </header>
 
   <!-- ===================== UPLOAD ===================== -->
   <section class="panel">
     <div id="uploadArea">
       <div class="upload-icon">&#128193;</div>
-      <h2>Arraste o PDF aqui</h2>
+      <h2>Arraste os PDFs aqui</h2>
       <p>ou</p>
-      <span class="btn-primary btn-select">Selecionar arquivo</span>
-      <input type="file" id="fileInput" accept="application/pdf,.pdf">
+      <span class="btn-primary btn-select">Selecionar arquivos</span>
+      <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple>
     </div>
     <div class="file-info-bar" id="fileInfoBar">
       <span class="name" id="fileInfoName"></span>
-      <button class="btn-ghost" id="btnChangeFile" type="button">Trocar arquivo</button>
+      <button class="btn-ghost" id="btnChangeFile" type="button">Adicionar mais PDFs</button>
     </div>
   </section>
 
@@ -348,15 +347,20 @@ footer.app-footer{
   <div class="msg msg-warn" id="msgWarn"></div>
   <div class="msg msg-success" id="msgSuccess"></div>
 
-  <!-- ===================== NF INFO ===================== -->
-  <section class="panel" id="nfInfoPanel">
-    <div class="nf-info-grid" id="nfInfoGrid"></div>
+  <!-- ===================== NOTAS PROCESSADAS ===================== -->
+  <section class="panel" id="notesPanel">
+    <h2 class="notes-title">Notas processadas</h2>
+    <div class="notes-list" id="notesList"></div>
   </section>
 
   <!-- ===================== RESULTS ===================== -->
   <section id="resultsSection">
 
     <div class="summary-cards">
+      <div class="summary-card">
+        <div class="num" id="cardNotas">0</div>
+        <div class="label">Notas processadas</div>
+      </div>
       <div class="summary-card">
         <div class="num" id="cardLinhas">0</div>
         <div class="label">Linhas encontradas</div>
@@ -375,13 +379,10 @@ footer.app-footer{
       <div class="table-controls">
         <input type="text" id="searchInput" placeholder="Pesquisar referência ou produto...">
         <div class="actions-row" style="margin-top:0;">
-          <button class="btn-secondary" id="btnExportCSV" type="button">Exportar CSV</button>
           <button class="btn-secondary" id="btnExportExcel" type="button">Exportar Excel</button>
-          <button class="btn-secondary" id="btnCopyList" type="button">Copiar lista</button>
-          <button class="btn-accent" id="btnEnviarNuvem" type="button">&#9729; Enviar</button>
-          <button class="btn-danger" id="btnNovaNota" type="button">Nova Nota</button>
+          <button class="btn-success" id="btnEnviarRecebeMais" type="button">&#9729; Enviar</button>
+          <button class="btn-danger" id="btnNovaNota" type="button">Nova Carga</button>
         </div>
-        <div class="cloud-status" id="cloudStatus" style="display:none;margin-top:10px;font-size:.82rem"></div>
       </div>
 
       <div class="table-wrap">
@@ -420,23 +421,37 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 // valores são variações de texto (já sem acento, em maiúsculas) que podem
 // aparecer impressas no cabeçalho daquela coluna.
 const HEADER_KEYWORDS = {
-  codigo:   ["CODIGO", "COD PRODUTO", "COD.PRODUTO", "CODPROD", "REFERENCIA"],
-  descricao:["DESCRICAO DO PRODUTO", "DESCRICAO DOS PRODUTOS", "DESCRICAO"],
+  codigo:   ["CODIGO", "COD PRODUTO", "COD.PRODUTO", "COD. PROD", "COD PROD", "COD.PROD", "CODPROD", "REFERENCIA"],
+  descricao:["DESCRICAO DO PRODUTO", "DESCRICAO DOS PRODUTOS", "DESCRICAO DO PROD", "DESCRICAO"],
   ncm:      ["NCM/SH", "NCM"],
   cst:      ["CST", "CSOSN"],
   cfop:     ["CFOP"],
   unidade:  ["UNID", "UN"],
   quantidade:["QUANT", "QTDE", "QTD"],
-  vlUnit:   ["VL.UNIT", "VALOR UNIT", "VLR UNIT", "V.UNIT", "VUNIT"],
+  vlUnit:   ["VL.UNIT", "VALOR UNIT", "VLR UNIT", "V.UNIT", "VUNIT", "V.UNITARIO"],
   vlTotal:  ["VL.TOTAL", "VALOR TOTAL", "VLR TOTAL", "V.TOTAL", "VTOTAL"],
   ean:      ["EAN", "GTIN", "CODIGO DE BARRAS"],
 };
+
+// Marcadores de "ruído" da tabela que não são produtos: o título da
+// seção ("DADOS DO(S) PRODUTO(S) / SERVIÇO(S)") e o próprio cabeçalho de
+// colunas repetido em cada página da NF-e (quando a nota tem mais de uma
+// folha, o DANFE reimprime o cabeçalho da tabela em cada página).
+function looksLikeTableNoise(text){
+  const upper = normKeyword(text);
+  if (upper.includes("DADOS DO PRODUTO") || upper.includes("DADOS DOS PRODUTOS")) return true;
+  if (upper.includes("QUANT") && (upper.includes("CODIGO") || upper.includes("COD.") || upper.includes("COD PROD") || upper.includes("REFERENCIA"))){
+    return true;
+  }
+  return false;
+}
 
 // Palavras que indicam que a tabela de produtos terminou (rodapé do DANFE).
 const FOOTER_KEYWORDS = [
   "CALCULO DO ISSQN", "CALCULO DO IMPOSTO", "DADOS ADICIONAIS",
   "INFORMACOES COMPLEMENTARES", "RESERVADO AO FISCO",
-  "TRANSPORTADOR", "DADOS DO TRANSPORTE", "FATURA", "DUPLICATA"
+  "TRANSPORTADOR", "DADOS DO TRANSPORTE", "FATURA", "DUPLICATA",
+  "IMPRESSO EM", "GERENCIADAS PELA", "POWERED BY",
 ];
 
 const Y_TOLERANCE = 2.2; // tolerância (pt) para agrupar itens na mesma linha
@@ -445,10 +460,10 @@ const Y_TOLERANCE = 2.2; // tolerância (pt) para agrupar itens na mesma linha
    ESTADO DA APLICAÇÃO
    ===================================================================== */
 const state = {
-  file: null,
-  consolidated: [],   // produtos consolidados (após agrupar referências)
-  totalLinhas: 0,      // linhas de produto encontradas antes da consolidação
-  nfInfo: null,
+  files: [],           // arquivos selecionados (File[])
+  notes: [],           // uma entrada por nota fiscal encontrada (pode haver mais de uma por arquivo)
+  consolidated: [],    // produtos consolidados globalmente (entre todas as notas)
+  totalLinhas: 0,       // linhas de produto encontradas antes da consolidação, somando todas as notas
   sortKey: "referencia",
   sortDir: 1,
   searchTerm: "",
@@ -473,13 +488,13 @@ function setupUploadArea(){
   uploadArea.addEventListener("drop", (e) => {
     e.preventDefault();
     uploadArea.classList.remove("dragover");
-    const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) handleFileSelected(f);
+    const files = e.dataTransfer.files;
+    if (files && files.length) handleFilesSelected(Array.from(files));
   });
 
   fileInput.addEventListener("change", (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (f) handleFileSelected(f);
+    const files = e.target.files;
+    if (files && files.length) handleFilesSelected(Array.from(files));
   });
 
   document.getElementById("btnChangeFile").addEventListener("click", (e) => {
@@ -488,16 +503,35 @@ function setupUploadArea(){
   });
 }
 
-function handleFileSelected(file){
+function handleFilesSelected(files){
   clearMessages();
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")){
-    showError("Selecione um arquivo PDF válido.");
+  const validos = [];
+  const invalidos = [];
+  for (const f of files){
+    if (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")) validos.push(f);
+    else invalidos.push(f.name);
+  }
+  if (invalidos.length){
+    showWarn(`Ignorado(s) por não ser PDF: ${invalidos.join(", ")}`);
+  }
+  if (!validos.length){
+    if (!invalidos.length) showError("Selecione um ou mais arquivos PDF válidos.");
     return;
   }
-  state.file = file;
-  fileInfoName.textContent = file.name;
+
+  // acumula com o que já tinha sido selecionado (permite adicionar mais
+  // PDFs da mesma carga em uploads separados)
+  state.files = state.files.concat(validos);
+  renderFileInfoBar();
+  processAllFiles(state.files);
+}
+
+function renderFileInfoBar(){
+  const n = state.files.length;
+  fileInfoName.textContent = n === 1
+    ? state.files[0].name
+    : `${n} arquivos selecionados`;
   fileInfoBar.classList.add("visible");
-  processFile(file);
 }
 
 /* =====================================================================
@@ -513,55 +547,138 @@ function setProcessing(visible, text, sub){
   processingSub.textContent = sub || "";
 }
 
-async function processFile(file){
+async function processAllFiles(files){
   document.getElementById("resultsSection").classList.remove("visible");
-  document.getElementById("nfInfoPanel").classList.remove("visible");
+  document.getElementById("notesPanel").classList.remove("visible");
   clearMessages();
+  state.notes = [];
 
-  try{
-    setProcessing(true, "Lendo documento...", "Abrindo o arquivo PDF no navegador.");
-    const { rows, fullText } = await readPDF(file);
+  for (let i = 0; i < files.length; i++){
+    const file = files[i];
+    const prefixo = files.length > 1 ? `Arquivo ${i + 1}/${files.length}: ` : "";
+    try{
+      setProcessing(true, "Lendo documento...", `${prefixo}Abrindo ${file.name} no navegador.`);
+      const { rows, fullText } = await readPDF(file);
 
-    setProcessing(true, "Extraindo produtos...", "Procurando a tabela de produtos da NF-e.");
-    await sleep(50); // dá um respiro visual para o indicador aparecer
-    const extraction = extractProducts(rows, fullText);
+      setProcessing(true, "Extraindo produtos...", `${prefixo}Procurando a(s) tabela(s) de produtos.`);
+      await sleep(30);
 
-    if (!extraction.products.length){
-      setProcessing(false);
-      showError("Não foi possível identificar os produtos nesta nota.");
-      return;
+      // um mesmo arquivo PDF pode conter mais de uma NF-e (ex.: várias
+      // notas exportadas juntas em um único PDF pelo emissor). Cada
+      // ocorrência do cabeçalho "RECEBEMOS DE..." marca o início de uma
+      // nota nova, então o arquivo é dividido em uma "nota lógica" por
+      // ocorrência antes de extrair os produtos de cada uma.
+      const segmentos = splitRowsIntoNotes(rows);
+
+      for (const seg of segmentos){
+        const segFullText = seg.map((r) => r.text).join("\n");
+        const extraction = extractProducts(seg, segFullText);
+        const nfInfo = extractNFHeaderInfo(segFullText);
+
+        if (!extraction.products.length){
+          state.notes.push({
+            fileName: file.name,
+            nfInfo,
+            products: [],
+            linhas: 0,
+            erro: true,
+            errorMsg: "Não foi possível identificar os produtos nesta nota.",
+          });
+          continue;
+        }
+
+        state.notes.push({
+          fileName: file.name,
+          nfInfo,
+          products: extraction.products,
+          linhas: extraction.products.length,
+          missingRef: extraction.missingRef,
+          missingQty: extraction.missingQty,
+          erro: false,
+        });
+      }
+    } catch (err){
+      console.error(err);
+      state.notes.push({
+        fileName: file.name,
+        nfInfo: null,
+        products: [],
+        linhas: 0,
+        erro: true,
+        errorMsg: "Não foi possível ler este PDF. Verifique se não está corrompido ou protegido.",
+      });
     }
+  }
 
-    setProcessing(true, "Consolidando referências...", "Agrupando referências repetidas e somando quantidades.");
-    await sleep(50);
-    const consolidated = consolidateProducts(extraction.products);
+  setProcessing(true, "Consolidando referências...", "Agrupando referências repetidas entre todas as notas e somando quantidades.");
+  await sleep(30);
+  finalizeProcessing();
+}
 
-    state.totalLinhas = extraction.products.length;
-    state.consolidated = consolidated;
-    state.nfInfo = extractNFHeaderInfo(fullText);
-
-    setProcessing(false);
-    showSuccess("Nota processada com sucesso.");
-
-    if (extraction.lowConfidenceCount > 0){
-      showWarn(
-        (extraction.missingRef > 0 ? "Alguns produtos não possuem referência identificável. " : "") +
-        (extraction.missingQty > 0 ? "Algumas quantidades não puderam ser identificadas." : "")
-      );
+function finalizeProcessing(){
+  const notasOk = state.notes.filter((n) => !n.erro);
+  const todosProdutos = [];
+  for (const nota of notasOk){
+    const notaRef = (nota.nfInfo && nota.nfInfo.numero) ? nota.nfInfo.numero : nota.fileName;
+    for (const p of nota.products){
+      todosProdutos.push({ ...p, _notaRef: notaRef });
     }
+  }
 
-    renderNFInfo(state.nfInfo);
+  state.totalLinhas = todosProdutos.length;
+  state.consolidated = consolidateProducts(todosProdutos);
+
+  setProcessing(false);
+
+  const comErro = state.notes.filter((n) => n.erro);
+  if (!notasOk.length){
+    showError("Não foi possível identificar produtos em nenhum dos arquivos selecionados.");
+  } else if (comErro.length){
+    showWarn(`${comErro.length} de ${state.notes.length} nota(s) não puderam ser processadas — veja detalhes na lista de notas abaixo.`);
+  } else {
+    showSuccess(
+      state.notes.length > 1
+        ? `${state.notes.length} notas processadas e consolidadas com sucesso.`
+        : "Nota processada com sucesso."
+    );
+  }
+
+  const algumaBaixaConfianca = notasOk.some((n) => n.missingRef > 0 || n.missingQty > 0);
+  if (algumaBaixaConfianca){
+    showWarn("Alguns produtos não possuem referência ou quantidade identificável com segurança — revise as linhas marcadas.");
+  }
+
+  renderNotesList();
+  if (state.consolidated.length){
     renderAll();
     document.getElementById("resultsSection").classList.add("visible");
-
-  } catch (err){
-    console.error(err);
-    setProcessing(false);
-    showError("Não foi possível ler este PDF. Verifique se o arquivo não está corrompido ou protegido.");
   }
 }
 
 function sleep(ms){ return new Promise((r) => setTimeout(r, ms)); }
+
+// Divide as linhas de um PDF em "notas lógicas": um mesmo arquivo pode
+// conter mais de uma NF-e (por exemplo, quando o emissor exporta várias
+// notas de uma mesma carga em um único PDF). O cabeçalho do canhoto de
+// recebimento ("RECEBEMOS DE... NOTA FISCAL INDICADA...") aparece uma
+// única vez por nota, sempre na primeira página daquela nota — por isso
+// é usado como marcador de início de cada nota dentro do arquivo.
+function splitRowsIntoNotes(rows){
+  const boundaries = [];
+  rows.forEach((row, idx) => {
+    if (normKeyword(row.text).includes("RECEBEMOS DE")) boundaries.push(idx);
+  });
+
+  if (!boundaries.length) return [rows];
+
+  const segments = [];
+  for (let i = 0; i < boundaries.length; i++){
+    const start = boundaries[i];
+    const end = i + 1 < boundaries.length ? boundaries[i + 1] : rows.length;
+    segments.push(rows.slice(start, end));
+  }
+  return segments;
+}
 
 /* =====================================================================
    LEITURA DO PDF
@@ -624,6 +741,22 @@ function normKeyword(str){
   return stripAccents(str).toUpperCase();
 }
 
+// Algumas DANFEs (ex.: layouts TOTVS) desenham uma linha de traços entre
+// cada produto como separador visual da tabela. Essas linhas não têm
+// nenhuma informação real (nem código, nem descrição) e não devem ser
+// tratadas como produto — sem esse filtro elas geram uma linha fantasma
+// "(sem referência)" sinalizada para revisão.
+function isSeparatorText(str){
+  return /^[-_=\s]{3,}$/.test(str || "");
+}
+// Remove também tokens de traço "soltos" que às vezes vazam para dentro
+// de uma célula (ex.: um traço vertical da borda da tabela caindo na
+// mesma linha de um produto), sem afetar hífens legítimos dentro de um
+// código ou descrição real.
+function isStrayDashToken(str){
+  return /^-+$/.test((str || "").trim());
+}
+
 // Tenta localizar, dentro das linhas do PDF, a linha de cabeçalho da
 // tabela de produtos e mapear cada coluna reconhecida para um intervalo
 // de coordenadas X.
@@ -660,10 +793,19 @@ function detectHeaderColumns(rows){
         .sort((a, b) => a.x - b.x);
 
       // define o intervalo [xStart, xEnd) de cada coluna como o ponto
-      // médio entre cabeçalhos consecutivos
+      // médio entre cabeçalhos consecutivos. Para a última coluna
+      // mapeada, em vez de ir até o infinito (o que faria ela "engolir"
+      // quaisquer colunas não reconhecidas à direita, como valores
+      // monetários), limita-se a um intervalo do mesmo tamanho do
+      // espaçamento típico entre colunas — suficiente para a própria
+      // coluna, sem capturar dados de colunas vizinhas não mapeadas.
+      const gaps = [];
+      for (let i = 1; i < cols.length; i++) gaps.push(cols[i].x - cols[i - 1].x);
+      const avgGap = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 60;
+
       for (let i = 0; i < cols.length; i++){
         cols[i].xStart = i === 0 ? -Infinity : (cols[i - 1].x + cols[i].x) / 2;
-        cols[i].xEnd = i === cols.length - 1 ? Infinity : (cols[i].x + cols[i + 1].x) / 2;
+        cols[i].xEnd = i === cols.length - 1 ? cols[i].x + avgGap : (cols[i].x + cols[i + 1].x) / 2;
       }
 
       return { headerRowIndex: idx, columns: cols };
@@ -682,16 +824,20 @@ function rowIsFooter(text){
 // uma extração baseada em padrões de texto por linha (Tentativa 2 - ver
 // parseProductsByPattern). Nesta versão não há OCR (ver seção OCR abaixo).
 function extractProducts(rows, fullText){
-  const header = detectHeaderColumns(rows);
+  // remove linhas que são puramente separadores visuais (traços/underline)
+  // antes de qualquer detecção de cabeçalho ou parsing de produto.
+  const cleanRows = rows.filter((row) => !isSeparatorText(row.text));
+
+  const header = detectHeaderColumns(cleanRows);
   let products = [];
 
   if (header){
-    products = parseProductsByColumns(rows, header);
+    products = parseProductsByColumns(cleanRows, header);
   }
 
   if (!products.length){
     // Tentativa 2: heurística baseada em padrões de texto, sem coordenadas.
-    products = parseProductsByPattern(rows);
+    products = parseProductsByPattern(cleanRows);
   }
 
   let missingRef = 0, missingQty = 0;
@@ -711,28 +857,97 @@ function extractProducts(rows, fullText){
 // TENTATIVA 1 — layout de colunas detectado pelo cabeçalho
 function parseProductsByColumns(rows, header){
   const products = [];
+  // Em NF-e com múltiplas folhas, cada página costuma repetir tanto o
+  // cabeçalho da tabela de produtos quanto trechos de rodapé (cálculo de
+  // impostos, dados adicionais) ANTES do fim real da lista de produtos —
+  // ou seja, a tabela "sai e volta a entrar" ao longo do documento. Por
+  // isso, em vez de parar no primeiro marcador de rodapé encontrado,
+  // controla-se um estado: sai da tabela ao ver um rodapé, e volta a
+  // entrar quando o cabeçalho de colunas se repete numa página seguinte.
+  let inTable = true;
   for (let i = header.headerRowIndex + 1; i < rows.length; i++){
     const row = rows[i];
-    if (rowIsFooter(row.text)) break;
     if (!row.text) continue;
+
+    // "RECEBEMOS DE ... NOTA FISCAL INDICADA AO LADO" é o cabeçalho do
+    // canhoto de recebimento e aparece só uma vez por NF-e, sempre no
+    // topo da primeira página daquela nota. Se ele aparecer de novo mais
+    // adiante no documento, significa que uma nota fiscal DIFERENTE está
+    // começando (não uma continuação da mesma nota em outra página) — e
+    // aí é preciso parar de vez, para nunca misturar produtos de duas
+    // notas diferentes (ver seção 19 do prompt original).
+    if (normKeyword(row.text).includes("RECEBEMOS DE")) break;
+
+    if (!inTable){
+      if (looksLikeTableNoise(row.text)) inTable = true;
+      continue;
+    }
+
+    if (rowIsFooter(row.text)){
+      inTable = false;
+      continue;
+    }
+    // ignora o título da seção e o cabeçalho de colunas quando ele se
+    // repete em páginas seguintes (NF-e com mais de uma folha).
+    if (looksLikeTableNoise(row.text)) continue;
 
     const cells = {};
     for (const col of header.columns){
-      const itemsInCol = row.items.filter((it) => it.x >= col.xStart && it.x < col.xEnd);
+      const itemsInCol = row.items.filter((it) => it.x >= col.xStart && it.x < col.xEnd && !isStrayDashToken(it.str));
       cells[col.field] = itemsInCol.map((it) => it.str).join(" ").trim();
     }
 
-    const referencia = (cells.codigo || "").trim();
-    const descricao = (cells.descricao || "").trim();
-    const quantidade = parseBRNumber(cells.quantidade);
-    const unidade = (cells.unidade || "").trim();
+    // Em alguns PDFs (varia até entre páginas da mesma nota) o código e o
+    // início da descrição saem colados no mesmo fragmento de texto, sem
+    // separação detectável entre as colunas. Quando isso acontece, a
+    // célula de código vem com espaços e múltiplas palavras — separa-se
+    // o primeiro token (o código de produto) do restante, que é
+    // repassado para o início da descrição.
+    let codigoRaw = (cells.codigo || "").trim();
+    let referencia = codigoRaw;
+    let descricaoPrefix = "";
+    const espacoIdx = codigoRaw.indexOf(" ");
+    if (espacoIdx > 0){
+      const primeiroToken = codigoRaw.slice(0, espacoIdx);
+      const resto = codigoRaw.slice(espacoIdx + 1).trim();
+      if (/^[A-Za-z0-9][A-Za-z0-9._-]{2,19}$/.test(primeiroToken) && /\d/.test(primeiroToken)){
+        referencia = primeiroToken;
+        descricaoPrefix = resto;
+      }
+    }
+
+    const descricao = ((descricaoPrefix ? descricaoPrefix + " " : "") + (cells.descricao || "").trim()).trim();
+    let quantidade = parseBRNumber(cells.quantidade);
+    let unidade = (cells.unidade || "").trim();
+
+    // Em alguns PDFs a unidade e a quantidade saem coladas no mesmo
+    // fragmento de texto (ex.: "KG 180,0000"), sem espaço detectável
+    // entre as colunas do PDF original — nesse caso a coluna de
+    // quantidade acaba vazia ou com o valor errado (de outra coluna
+    // vizinha). Detecta esse padrão e separa os dois valores corretamente.
+    const unidadeQuantidadeColada = unidade.match(/^([A-Za-zÀ-ú]{1,6})\s+([\d.,]+)$/);
+    if (unidadeQuantidadeColada){
+      unidade = unidadeQuantidadeColada[1];
+      const quantidadeReal = parseBRNumber(unidadeQuantidadeColada[2]);
+      if (quantidadeReal !== null) quantidade = quantidadeReal;
+    }
 
     // uma linha de produto real de NF-e sempre tem código, ou então
     // descrição + quantidade válida juntos. Uma linha só com descrição
-    // solta (sem código e sem quantidade que dê para somar) é ruído
-    // estrutural do PDF (ex.: rótulo truncado de outra área do documento),
-    // não um produto, e não deve gerar linha na tabela.
-    if (!referencia && !(descricao && quantidade !== null)) continue;
+    // solta (sem código e sem quantidade) normalmente é a CONTINUAÇÃO da
+    // descrição do produto anterior — algumas DANFEs quebram a descrição
+    // descrição do produto anterior — algumas DANFEs quebram a descrição
+    // em duas linhas visuais quando ela é longa (ex.: "PORTA MAPAS DIAN
+    // DIR BL" na primeira linha e "ACK TITAN" na linha seguinte). Nesse
+    // caso, em vez de descartar, anexa-se o texto ao produto anterior
+    // para não perder parte da descrição.
+    if (!referencia && !(descricao && quantidade !== null)){
+      if (descricao && products.length){
+        const prev = products[products.length - 1];
+        prev.descricao = (prev.descricao ? prev.descricao + " " : "") + descricao;
+      }
+      continue;
+    }
 
     products.push({
       referencia,
@@ -853,16 +1068,22 @@ function extractNFHeaderInfo(fullText){
   const dataMatch = fullText.match(/EMISS[ÃA]O[:\s]+(\d{2}\/\d{2}\/\d{4})/i);
   if (dataMatch) info.dataEmissao = dataMatch[1];
 
-  // CNPJ formatado (##.###.###/####-##) — primeira ocorrência do documento,
-  // que no layout padrão do DANFE corresponde ao emitente (fornecedor),
-  // pois esse bloco aparece antes do destinatário/transportador na página.
-  const cnpjMatch = fullText.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
-  if (cnpjMatch) info.cnpj = cnpjMatch[0];
+  // CNPJ formatado (##.###.###/####-##, tolerando espaços ao redor do
+  // hífen final, comuns em alguns layouts) — primeira ocorrência do
+  // documento, que no layout padrão do DANFE corresponde ao emitente
+  // (fornecedor), pois esse bloco aparece antes do destinatário/
+  // transportador na página.
+  const cnpjMatch = fullText.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}\s*-\s*\d{2}/);
+  if (cnpjMatch) info.cnpj = cnpjMatch[0].replace(/\s+/g, "");
 
   // RAZÃO SOCIAL do emitente — procura a primeira linha "plausível" de
   // nome de empresa nas linhas seguintes ao rótulo "EMITENTE", ignorando
   // rótulos conhecidos do cabeçalho do DANFE (título, chave de acesso etc.)
-  // que podem aparecer intercalados por estarem em uma coluna vizinha.
+  // que podem aparecer intercalados por estarem em uma coluna vizinha. Em
+  // alguns layouts essa coluna fica bem próxima de outra (ex.: título do
+  // DANFE, chave de acesso) e pode aparecer misturada na mesma linha —
+  // por isso o resultado é validado antes de aceitar, para nunca exibir
+  // um texto claramente inválido em vez de simplesmente omitir o campo.
   const emitenteIdx = lines.findIndex((l) => normKeyword(l).includes("EMITENTE"));
   if (emitenteIdx !== -1){
     const blacklist = /DANFE|DOCUMENTO AUXILIAR|FISCAL ELETRONICA|ENTRADA|SAIDA|CHAVE DE ACESSO|CONSULTA DE AUTENTICIDADE|FOLHA|NATUREZA DA OPERACAO|PROTOCOLO/;
@@ -872,12 +1093,28 @@ function extractNFHeaderInfo(fullText){
       const upper = normKeyword(line);
       if (blacklist.test(upper)) continue;
       if (/^N[ºo°]/i.test(line) || /^S[ée]rie/i.test(line)) continue;
+      if (!looksLikeCompanyName(line)) continue;
       info.razaoSocial = line;
       break;
     }
   }
 
   return Object.keys(info).length ? info : null;
+}
+
+// Validação de sanidade para nunca exibir texto claramente inválido como
+// razão social (ex.: trechos de código de barras/chave de acesso que
+// vazaram para a mesma linha por estarem em uma coluna vizinha).
+function looksLikeCompanyName(line){
+  const cleaned = line.trim();
+  if (cleaned.length < 4 || cleaned.length > 80) return false;
+  if (/[:<>@#|]/.test(cleaned)) return false;
+  // evita confundir linhas de endereço (rua, avenida, rodovia etc.) com
+  // o nome da empresa quando ambos aparecem próximos no layout.
+  if (/^(RUA|AV\.?|AVENIDA|ROD\.?|RODOVIA|TRAVESSA|AL\.?|ALAMEDA|PRA[ÇC]A|ESTRADA|R\.)\b/i.test(cleaned)) return false;
+  const digits = (cleaned.match(/\d/g) || []).length;
+  if (digits / cleaned.length > 0.3) return false;
+  return true;
 }
 
 /* =====================================================================
@@ -915,10 +1152,12 @@ function consolidateProducts(products){
         quantidadeValida: true,
         ocorrencias: [],
         lowConfidence: false,
+        notas: new Set(),
       });
     }
     const entry = map.get(refNorm);
     entry.ocorrencias.push({ quantidade: p.quantidade, rawLine: p.rawLine });
+    if (p._notaRef) entry.notas.add(p._notaRef);
 
     if (!entry.descricao && p.descricao) entry.descricao = p.descricao;
     if (!entry.unidade && p.unidade) entry.unidade = p.unidade;
@@ -933,52 +1172,62 @@ function consolidateProducts(products){
     if (!p.referencia) entry.lowConfidence = true;
   }
 
-  return Array.from(map.values());
+  return Array.from(map.values()).map((entry) => ({
+    ...entry,
+    notas: Array.from(entry.notas),
+  }));
 }
 
 /* =====================================================================
    RENDERIZAÇÃO
    ===================================================================== */
-function renderNFInfo(info){
-  const panel = document.getElementById("nfInfoPanel");
-  const grid = document.getElementById("nfInfoGrid");
-  grid.innerHTML = "";
+function renderNotesList(){
+  const panel = document.getElementById("notesPanel");
+  const list = document.getElementById("notesList");
+  list.innerHTML = "";
 
-  if (!info){
+  if (!state.notes.length){
     panel.classList.remove("visible");
     return;
   }
 
-  const labels = {
-    numero: "Número da NF",
-    serie: "Série",
-    dataEmissao: "Data de emissão",
-    cnpj: "CNPJ do fornecedor",
-    razaoSocial: "Razão social",
-  };
-
-  let any = false;
-  for (const key in labels){
-    if (!info[key]) continue;
-    any = true;
+  state.notes.forEach((nota) => {
     const div = document.createElement("div");
-    div.className = "nf-info-item";
-    div.innerHTML = `<div class="label">${labels[key]}</div><div class="value">${escapeHTML(info[key])}</div>`;
-    grid.appendChild(div);
-  }
-  panel.classList.toggle("visible", any);
+    div.className = "note-item" + (nota.erro ? " note-error" : "");
+
+    if (nota.erro){
+      div.innerHTML = `
+        <span class="note-file">${escapeHTML(nota.fileName)}</span>
+        <span class="note-error-msg">${escapeHTML(nota.errorMsg || "Não foi possível processar esta nota.")}</span>
+      `;
+    } else {
+      const info = nota.nfInfo || {};
+      const numero = info.numero ? `Nº ${escapeHTML(info.numero)}` : "Nº não identificado";
+      const fornecedor = info.razaoSocial ? escapeHTML(info.razaoSocial) : "";
+      div.innerHTML = `
+        <span class="note-file">${escapeHTML(nota.fileName)}</span>
+        <span class="note-num">${numero}</span>
+        ${fornecedor ? `<span class="note-fornecedor">${fornecedor}</span>` : ""}
+        <span class="note-linhas">${nota.linhas} linha(s)</span>
+      `;
+    }
+    list.appendChild(div);
+  });
+
+  panel.classList.add("visible");
 }
 
 function calculateTotals(list){
   const linhas = state.totalLinhas;
   const refs = list.length;
+  const notas = state.notes.filter((n) => !n.erro).length;
   let qtdTotal = 0;
   let qtdValida = true;
   for (const p of list){
     if (!p.quantidadeValida){ qtdValida = false; }
     qtdTotal += p.quantidade;
   }
-  return { linhas, refs, qtdTotal, qtdValida };
+  return { linhas, refs, notas, qtdTotal, qtdValida };
 }
 
 function getFilteredSorted(){
@@ -1009,6 +1258,7 @@ function getFilteredSorted(){
 
 function renderAll(){
   const totals = calculateTotals(state.consolidated);
+  document.getElementById("cardNotas").textContent = totals.notas.toLocaleString("pt-BR");
   document.getElementById("cardLinhas").textContent = totals.linhas.toLocaleString("pt-BR");
   document.getElementById("cardRefs").textContent = totals.refs.toLocaleString("pt-BR");
   document.getElementById("cardQtd").textContent = totals.qtdValida
@@ -1101,10 +1351,11 @@ function exportCSV(){
   const list = getFilteredSorted();
   if (!list.length) return;
 
-  const header = "Referência,Descrição,Quantidade,Unidade";
+  const header = "Referência,Descrição,Quantidade,Unidade,Notas";
   const lines = list.map((p) => {
     const qtd = p.quantidadeValida ? p.quantidade : (p.quantidade || "");
-    return [csvEscape(p.referencia), csvEscape(p.descricao), qtd, csvEscape(p.unidade)].join(",");
+    const notasList = p.notas && p.notas.length ? p.notas.join(" | ") : "";
+    return [csvEscape(p.referencia), csvEscape(p.descricao), qtd, csvEscape(p.unidade), csvEscape(notasList)].join(",");
   });
 
   const csvContent = "\uFEFF" + [header, ...lines].join("\r\n");
@@ -1125,8 +1376,104 @@ function csvEscape(value){
   return str;
 }
 
-// Exporta um arquivo .xlsx com a lista de referências consolidadas e,
-// quando disponíveis, os dados complementares da nota em uma segunda aba.
+// Exporta um arquivo .xlsx com a lista de referências consolidadas
+// (entre todas as notas processadas), uma aba com o resumo geral e uma
+// aba listando cada nota individualmente.
+/* =====================================================================
+   ENVIAR PARA O RECEBEMAIS (Firebase Firestore)
+   ===================================================================== */
+// TODO: preencher com o firebaseConfig real do projeto RecebeMais e com
+// o nome/estrutura de campos exatos da coleção "pendentes" que o
+// RecebeMais espera. Enquanto isso não for configurado, o botão "Enviar"
+// mostra uma mensagem explicando o que falta, em vez de falhar
+// silenciosamente ou enviar dados no formato errado.
+const RECEBEMAIS_CONFIG = {
+  firebaseConfig: {
+    apiKey: "AIzaSyBTjq1CzNj_wm6xwFLDEUbGGYNpFDxfe6A",
+    authDomain: "recebemais-340ea.firebaseapp.com",
+    projectId: "recebemais-340ea",
+    storageBucket: "recebemais-340ea.firebasestorage.app",
+    messagingSenderId: "154000900066",
+    appId: "1:154000900066:web:677ed6caeeb633cc1783bb",
+  },
+  colecaoPendentes: "pendentes",
+};
+
+async function enviarParaRecebeMais(){
+  const notasOk = state.notes.filter((n) => !n.erro && n.products && n.products.length);
+  if (!notasOk.length){
+    showError("Não há produtos para enviar.");
+    return;
+  }
+
+  if (!RECEBEMAIS_CONFIG.firebaseConfig){
+    showError(
+      "O envio para o RecebeMais ainda não está configurado neste arquivo. " +
+      "Preciso do firebaseConfig do projeto para ligar esse botão de fato."
+    );
+    return;
+  }
+
+  if (typeof firebase === "undefined"){
+    showError(
+      "A biblioteca do Firebase não carregou neste ambiente (bloqueio de rede ou script externo). " +
+      "Abra este arquivo direto no navegador (ou hospedado no GitHub Pages) em vez de usar o preview do Claude, e tente de novo."
+    );
+    return;
+  }
+
+  try{
+    setProcessing(
+      true,
+      "Enviando para o RecebeMais...",
+      notasOk.length > 1 ? `Gravando ${notasOk.length} notas na nuvem.` : "Gravando a nota na nuvem."
+    );
+
+    // Inicializa o Firebase uma única vez (evita reinicializar em cliques
+    // repetidos do botão).
+    if (!window.__firebaseApp){
+      window.__firebaseApp = firebase.initializeApp(RECEBEMAIS_CONFIG.firebaseConfig);
+    }
+    const db = firebase.firestore();
+
+    // O RecebeMais lê a coleção "pendentes" como UM DOCUMENTO POR NOTA
+    // fiscal (campos "forn", "nf", "cnpj" e "produtos"), não como um
+    // único documento por carga — por isso, quando a carga tem várias
+    // notas, é enviado um documento para cada uma.
+    for (const nota of notasOk){
+      const consolidadoNota = consolidateProducts(nota.products);
+      const produtos = consolidadoNota.map((p) => ({
+        referencia: p.referencia,
+        descricao: p.descricao || "",
+        quantidade: p.quantidadeValida ? p.quantidade : (p.quantidade || 0),
+        unidade: p.unidade || "",
+      }));
+
+      await db.collection(RECEBEMAIS_CONFIG.colecaoPendentes).add({
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        forn: (nota.nfInfo && nota.nfInfo.razaoSocial) || "",
+        nf: (nota.nfInfo && nota.nfInfo.numero) || "",
+        cnpj: (nota.nfInfo && nota.nfInfo.cnpj) || "",
+        produtos,
+      });
+    }
+
+    setProcessing(false);
+    showSuccess(
+      notasOk.length > 1
+        ? `${notasOk.length} notas enviadas para o RecebeMais com sucesso.`
+        : "Nota enviada para o RecebeMais com sucesso."
+    );
+  } catch (err){
+    console.error(err);
+    setProcessing(false);
+    showError("Não foi possível enviar para o RecebeMais. Verifique sua conexão e tente novamente.");
+  }
+}
+
+/* =====================================================================
+   EXPORTAÇÃO
+   ===================================================================== */
 function exportExcel(){
   const list = getFilteredSorted();
   if (!list.length) return;
@@ -1136,62 +1483,78 @@ function exportExcel(){
     return;
   }
 
-  const header = ["Referência", "Descrição", "Quantidade", "Unidade"];
+  const header = ["Referência", "Descrição", "Quantidade", "Unidade", "Notas"];
   const rows = list.map((p) => [
     p.referencia,
     p.descricao || "",
     p.quantidadeValida ? p.quantidade : (p.quantidade ?? ""),
     p.unidade || "",
+    p.notas && p.notas.length ? p.notas.join(", ") : "",
   ]);
 
   const wb = XLSX.utils.book_new();
   const wsProdutos = XLSX.utils.aoa_to_sheet([header, ...rows]);
-  wsProdutos["!cols"] = [{ wch: 16 }, { wch: 40 }, { wch: 14 }, { wch: 10 }];
+  wsProdutos["!cols"] = [{ wch: 16 }, { wch: 40 }, { wch: 14 }, { wch: 10 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, wsProdutos, "Produtos");
 
   const totals = calculateTotals(state.consolidated);
-  const infoRows = [];
+  const resumoRows = [
+    ["Notas processadas", totals.notas],
+    ["Linhas encontradas", totals.linhas],
+    ["Referências únicas", totals.refs],
+    ["Quantidade total", totals.qtdValida ? totals.qtdTotal : totals.qtdTotal + " (*)"],
+  ];
+  const wsResumo = XLSX.utils.aoa_to_sheet([["Campo", "Valor"], ...resumoRows]);
+  wsResumo["!cols"] = [{ wch: 22 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo Geral");
 
-  if (state.nfInfo){
-    const labels = {
-      numero: "Número da NF",
-      serie: "Série",
-      dataEmissao: "Data de emissão",
-      cnpj: "CNPJ do fornecedor",
-      razaoSocial: "Razão social",
-    };
-    Object.entries(labels).forEach(([key, label]) => {
-      if (state.nfInfo[key]) infoRows.push([label, state.nfInfo[key]]);
-    });
-  }
-
-  infoRows.push(["Linhas encontradas", totals.linhas]);
-  infoRows.push(["Referências únicas", totals.refs]);
-  infoRows.push([
-    "Quantidade total",
-    totals.qtdValida ? totals.qtdTotal : totals.qtdTotal + " (*)",
+  const notasRows = state.notes.map((n) => [
+    n.fileName,
+    n.erro ? "Erro" : "OK",
+    n.nfInfo && n.nfInfo.numero ? n.nfInfo.numero : "",
+    n.nfInfo && n.nfInfo.razaoSocial ? n.nfInfo.razaoSocial : "",
+    n.nfInfo && n.nfInfo.dataEmissao ? n.nfInfo.dataEmissao : "",
+    n.linhas || 0,
   ]);
-
-  const wsInfo = XLSX.utils.aoa_to_sheet([["Campo", "Valor"], ...infoRows]);
-  wsInfo["!cols"] = [{ wch: 22 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, wsInfo, "Dados da Nota");
+  const wsNotas = XLSX.utils.aoa_to_sheet([
+    ["Arquivo", "Status", "Número da NF", "Razão social", "Data de emissão", "Linhas encontradas"],
+    ...notasRows,
+  ]);
+  wsNotas["!cols"] = [{ wch: 28 }, { wch: 8 }, { wch: 16 }, { wch: 34 }, { wch: 16 }, { wch: 18 }];
+  XLSX.utils.book_append_sheet(wb, wsNotas, "Notas Processadas");
 
   XLSX.writeFile(wb, buildExportFilename() + ".xlsx");
 }
 
-// Monta o nome do arquivo exportado como "<primeiro nome da razão
-// social>_<número da NF sem zeros à esquerda>", por exemplo
-// "SIMOLDES_419136". Cai para um nome padrão quando os dados da nota
-// não foram identificados com segurança.
+// Monta o nome do arquivo exportado. Quando há apenas uma nota
+// identificada, usa "<primeiro nome da razão social>_<número da NF sem
+// zeros à esquerda>" (ex.: "SIMOLDES_419136"). Quando há várias notas
+// (carga consolidada), usa o fornecedor em comum (se todas as notas
+// forem do mesmo fornecedor) seguido de "CARGA"; caso contrário, cai
+// para um nome padrão.
 function buildExportFilename(){
-  const info = state.nfInfo;
-  if (!info || !info.razaoSocial || !info.numero) return "conferencia-nf";
+  const notasOk = state.notes.filter((n) => !n.erro && n.nfInfo);
+  if (!notasOk.length) return "conferencia-nf";
 
-  const primeiroNome = sanitizeFilenamePart(info.razaoSocial.trim().split(/\s+/)[0]);
-  const numeroLimpo = info.numero.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  if (notasOk.length === 1){
+    const info = notasOk[0].nfInfo;
+    if (info && info.razaoSocial && info.numero){
+      const primeiroNome = sanitizeFilenamePart(info.razaoSocial.trim().split(/\s+/)[0]);
+      const numeroLimpo = info.numero.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+      if (primeiroNome && numeroLimpo) return `${primeiroNome}_${numeroLimpo}`;
+    }
+    return "conferencia-nf";
+  }
 
-  if (!primeiroNome || !numeroLimpo) return "conferencia-nf";
-  return `${primeiroNome}_${numeroLimpo}`;
+  const primeirosNomes = new Set(
+    notasOk
+      .map((n) => n.nfInfo.razaoSocial && sanitizeFilenamePart(n.nfInfo.razaoSocial.trim().split(/\s+/)[0]))
+      .filter(Boolean)
+  );
+  if (primeirosNomes.size === 1){
+    return `${Array.from(primeirosNomes)[0]}_CARGA`;
+  }
+  return "conferencia-carga";
 }
 
 function sanitizeFilenamePart(str){
@@ -1215,88 +1578,13 @@ function copyList(){
 }
 
 /* =====================================================================
-   ENVIO PARA A NUVEM (integração com o RecebeMais)
-   Publica a lista consolidada em uma coleção "pendentes" no Firestore.
-   O RecebeMais escuta essa coleção em tempo real e mostra um badge no
-   ícone de nuvem — o usuário escolhe a NF lá e inicia a contagem às
-   cegas sem precisar importar planilha manualmente.
-   ===================================================================== */
-function buildCloudPayload(){
-  const produtos = state.consolidated.map((p) => ({
-    referencia: p.referencia,
-    descricao: p.descricao || "",
-    quantidade: p.quantidadeValida ? p.quantidade : (p.quantidade ?? 0),
-    unidade: p.unidade || "",
-  }));
-
-  const info = state.nfInfo || {};
-  const labels = {
-    numero: "Número da NF",
-    serie: "Série",
-    dataEmissao: "Data de emissão",
-    cnpj: "CNPJ do fornecedor",
-    razaoSocial: "Razão social",
-  };
-  const raw = [];
-  Object.entries(labels).forEach(([key, label]) => {
-    if (info[key]) raw.push({ campo: label, valor: info[key] });
-  });
-
-  return {
-    nf: info.numero || "",
-    forn: info.razaoSocial || "",
-    cnpj: info.cnpj || "",
-    produtos,
-    raw,
-  };
-}
-
-function setCloudStatus(text, kind){
-  const el = document.getElementById("cloudStatus");
-  if (!el) return;
-  if (!text){ el.style.display = "none"; el.textContent = ""; return; }
-  el.style.display = "block";
-  el.style.color = kind === "error" ? "var(--danger)" : (kind === "ok" ? "var(--accent)" : "var(--text-mute)");
-  el.textContent = text;
-}
-
-async function enviarParaNuvem(){
-  if (!state.consolidated.length){
-    showError("Não há produtos para enviar. Processe uma NF primeiro.");
-    return;
-  }
-  if (typeof firebase === "undefined" || !firebase.apps || !firebase.apps.length){
-    setCloudStatus("Conexão com a nuvem não configurada (verifique FIREBASE_CONFIG no código-fonte).", "error");
-    return;
-  }
-
-  const btn = document.getElementById("btnEnviarNuvem");
-  if (btn){ btn.disabled = true; btn.textContent = "Enviando..."; }
-  setCloudStatus("Enviando para a nuvem...");
-
-  try{
-    const payload = buildCloudPayload();
-    await firebase.firestore().collection("pendentes").add({
-      ...payload,
-      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    setCloudStatus("✓ Enviado — já disponível no ícone de nuvem do RecebeMais.", "ok");
-  }catch(err){
-    console.error("Enviar para nuvem:", err);
-    setCloudStatus("Falha ao enviar para a nuvem. Verifique sua conexão e tente novamente.", "error");
-  }finally{
-    if (btn){ btn.disabled = false; btn.innerHTML = "&#9729; Enviar"; }
-  }
-}
-
-/* =====================================================================
-   NOVA NOTA
+   NOVA CARGA
    ===================================================================== */
 function resetApp(){
-  state.file = null;
+  state.files = [];
+  state.notes = [];
   state.consolidated = [];
   state.totalLinhas = 0;
-  state.nfInfo = null;
   state.searchTerm = "";
   state.sortKey = "referencia";
   state.sortDir = 1;
@@ -1305,7 +1593,7 @@ function resetApp(){
   fileInfoBar.classList.remove("visible");
   document.getElementById("searchInput").value = "";
   document.getElementById("resultsSection").classList.remove("visible");
-  document.getElementById("nfInfoPanel").classList.remove("visible");
+  document.getElementById("notesPanel").classList.remove("visible");
   clearMessages();
 }
 
@@ -1354,11 +1642,9 @@ function init(){
   setupUploadArea();
   setupSearch();
   setupSort();
-  document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
   document.getElementById("btnExportExcel").addEventListener("click", exportExcel);
-  document.getElementById("btnCopyList").addEventListener("click", copyList);
+  document.getElementById("btnEnviarRecebeMais").addEventListener("click", enviarParaRecebeMais);
   document.getElementById("btnNovaNota").addEventListener("click", resetApp);
-  document.getElementById("btnEnviarNuvem").addEventListener("click", enviarParaNuvem);
 }
 init();
 </script>
