@@ -1099,6 +1099,14 @@ function extractNFHeaderInfo(fullText){
     }
   }
 
+  // Reforço: se a razão social não foi identificada com segurança pelo
+  // método acima, tenta um fornecedor conhecido pelo CNPJ (ver
+  // FORNECEDORES_CONHECIDOS_POR_CNPJ).
+  if (!info.razaoSocial && info.cnpj){
+    const conhecido = lookupFornecedorPorCnpj(info.cnpj);
+    if (conhecido) info.razaoSocial = conhecido;
+  }
+
   return Object.keys(info).length ? info : null;
 }
 
@@ -1115,6 +1123,22 @@ function looksLikeCompanyName(line){
   const digits = (cleaned.match(/\d/g) || []).length;
   if (digits / cleaned.length > 0.3) return false;
   return true;
+}
+
+// Alguns layouts (ex.: LinkPlas) misturam o nome do fornecedor com o
+// título "DANFE" na mesma linha visual, e o nome acaba sendo rejeitado
+// pela validação de sanidade acima (com razão). Como Murilo trabalha
+// sempre com o mesmo grupo pequeno de fornecedores recorrentes, mantém-se
+// aqui uma lista de reforço por CNPJ para preencher a razão social
+// quando a extração normal falha — evita que a nota chegue ao RecebeMais
+// como "fornecedor não identificado" nesses casos conhecidos.
+const FORNECEDORES_CONHECIDOS_POR_CNPJ = {
+  "04992664000135": "LINKPLAS INDÚSTRIA DE PLÁSTICOS LTDA",
+};
+function lookupFornecedorPorCnpj(cnpj){
+  if (!cnpj) return null;
+  const digits = cnpj.replace(/\D/g, "");
+  return FORNECEDORES_CONHECIDOS_POR_CNPJ[digits] || null;
 }
 
 /* =====================================================================
@@ -1382,6 +1406,44 @@ function csvEscape(value){
 /* =====================================================================
    ENVIAR PARA O RECEBEMAIS (Firebase Firestore)
    ===================================================================== */
+// Monta o campo "forn" (fornecedor) para a carga inteira. Quando todas as
+// notas têm a mesma razão social, usa esse nome. Quando há fornecedores
+// diferentes ou algum não foi identificado, junta os nomes distintos —
+// e NUNCA deixa vazio, para que o RecebeMais preencha automaticamente o
+// campo de fornecedor ao importar da nuvem, sem bloquear pedindo de novo.
+function buildFornecedorCarga(notas){
+  const nomes = new Set(
+    notas
+      .map((n) => n.nfInfo && n.nfInfo.razaoSocial)
+      .filter(Boolean)
+  );
+  if (nomes.size === 1) return Array.from(nomes)[0];
+  if (nomes.size > 1) return Array.from(nomes).join(" + ");
+  return "Carga sem fornecedor identificado";
+}
+
+// Monta o campo "nf" com os números de todas as notas da carga,
+// separados por vírgula (o RecebeMais apenas exibe esse texto, então uma
+// lista legível é suficiente mesmo quando há várias notas).
+function buildNumerosNfCarga(notas){
+  const numeros = notas
+    .map((n) => n.nfInfo && n.nfInfo.numero)
+    .filter(Boolean);
+  return numeros.join(", ");
+}
+
+// Monta o campo "cnpj" só quando todas as notas são do mesmo fornecedor
+// (mesmo CNPJ) — caso contrário, deixa em branco em vez de mostrar um
+// CNPJ que só corresponde a parte da carga.
+function buildCnpjCarga(notas){
+  const cnpjs = new Set(
+    notas
+      .map((n) => n.nfInfo && n.nfInfo.cnpj)
+      .filter(Boolean)
+  );
+  return cnpjs.size === 1 ? Array.from(cnpjs)[0] : "";
+}
+
 // TODO: preencher com o firebaseConfig real do projeto RecebeMais e com
 // o nome/estrutura de campos exatos da coleção "pendentes" que o
 // RecebeMais espera. Enquanto isso não for configurado, o botão "Enviar"
@@ -1401,7 +1463,7 @@ const RECEBEMAIS_CONFIG = {
 
 async function enviarParaRecebeMais(){
   const notasOk = state.notes.filter((n) => !n.erro && n.products && n.products.length);
-  if (!notasOk.length){
+  if (!notasOk.length || !state.consolidated.length){
     showError("Não há produtos para enviar.");
     return;
   }
@@ -1423,11 +1485,7 @@ async function enviarParaRecebeMais(){
   }
 
   try{
-    setProcessing(
-      true,
-      "Enviando para o RecebeMais...",
-      notasOk.length > 1 ? `Gravando ${notasOk.length} notas na nuvem.` : "Gravando a nota na nuvem."
-    );
+    setProcessing(true, "Enviando para o RecebeMais...", "Gravando a carga consolidada na nuvem.");
 
     // Inicializa o Firebase uma única vez (evita reinicializar em cliques
     // repetidos do botão).
@@ -1436,32 +1494,28 @@ async function enviarParaRecebeMais(){
     }
     const db = firebase.firestore();
 
-    // O RecebeMais lê a coleção "pendentes" como UM DOCUMENTO POR NOTA
-    // fiscal (campos "forn", "nf", "cnpj" e "produtos"), não como um
-    // único documento por carga — por isso, quando a carga tem várias
-    // notas, é enviado um documento para cada uma.
-    for (const nota of notasOk){
-      const consolidadoNota = consolidateProducts(nota.products);
-      const produtos = consolidadoNota.map((p) => ({
-        referencia: p.referencia,
-        descricao: p.descricao || "",
-        quantidade: p.quantidadeValida ? p.quantidade : (p.quantidade || 0),
-        unidade: p.unidade || "",
-      }));
+    // Envia a carga inteira como UM ÚNICO documento em "pendentes", com
+    // as referências já consolidadas entre todas as notas — assim ela
+    // aparece no RecebeMais como uma única contagem, não uma por nota.
+    const produtos = state.consolidated.map((p) => ({
+      referencia: p.referencia,
+      descricao: p.descricao || "",
+      quantidade: p.quantidadeValida ? p.quantidade : (p.quantidade || 0),
+      unidade: p.unidade || "",
+    }));
 
-      await db.collection(RECEBEMAIS_CONFIG.colecaoPendentes).add({
-        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-        forn: (nota.nfInfo && nota.nfInfo.razaoSocial) || "",
-        nf: (nota.nfInfo && nota.nfInfo.numero) || "",
-        cnpj: (nota.nfInfo && nota.nfInfo.cnpj) || "",
-        produtos,
-      });
-    }
+    await db.collection(RECEBEMAIS_CONFIG.colecaoPendentes).add({
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      forn: buildFornecedorCarga(notasOk),
+      nf: buildNumerosNfCarga(notasOk),
+      cnpj: buildCnpjCarga(notasOk),
+      produtos,
+    });
 
     setProcessing(false);
     showSuccess(
       notasOk.length > 1
-        ? `${notasOk.length} notas enviadas para o RecebeMais com sucesso.`
+        ? `Carga com ${notasOk.length} notas enviada para o RecebeMais com sucesso.`
         : "Nota enviada para o RecebeMais com sucesso."
     );
   } catch (err){
