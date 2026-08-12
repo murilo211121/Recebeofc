@@ -380,7 +380,14 @@ footer.app-footer{
 
   <!-- ===================== NOTAS PROCESSADAS ===================== -->
   <section class="panel" id="notesPanel">
-    <h2 class="notes-title">Notas processadas</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px;">
+      <h2 class="notes-title" style="margin-bottom:0;">Notas processadas</h2>
+      <button class="btn-ghost" id="btnGuardarErros" type="button"
+              title="Envia o PDF original das notas que deram erro pro Firebase, pra você revisar e corrigir depois"
+              style="display:none; font-size:0.76rem; padding:6px 10px;">
+        &#9729; Guardar notas com erro
+      </button>
+    </div>
     <div class="notes-list" id="notesList"></div>
   </section>
 
@@ -432,11 +439,6 @@ footer.app-footer{
       <div class="empty-state" id="emptyState" style="display:none;">Nenhum produto encontrado.</div>
     </div>
   </section>
-
-  <footer class="app-footer">
-    Processamento 100% local no navegador &middot; nenhum arquivo é enviado a servidores &middot;
-    OCR automático via Tesseract.js quando o PDF não tem texto extraível
-  </footer>
 
 </div>
 
@@ -629,6 +631,7 @@ async function processAllFiles(files){
         if (!extraction.products.length){
           state.notes.push({
             fileName: file.name,
+            file,
             nfInfo,
             products: [],
             linhas: 0,
@@ -643,6 +646,7 @@ async function processAllFiles(files){
 
         state.notes.push({
           fileName: file.name,
+          file,
           nfInfo,
           products: extraction.products,
           linhas: extraction.products.length,
@@ -656,6 +660,7 @@ async function processAllFiles(files){
       console.error(err);
       state.notes.push({
         fileName: file.name,
+        file,
         nfInfo: null,
         products: [],
         linhas: 0,
@@ -902,7 +907,10 @@ function detectHeaderColumns(rows){
     let matches = 0;
     const found = {}; // campo -> x do item
     for (const item of row.items){
-      const upperItem = normKeyword(item.str).trim();
+      // remove ponto final antes de comparar (alguns layouts abreviam
+      // com ponto, ex.: "UN.") para a comparação exata dos campos em
+      // EXACT_MATCH_FIELDS não falhar por causa da pontuação.
+      const upperItem = normKeyword(item.str).trim().replace(/\.$/, "");
       for (const field in HEADER_KEYWORDS){
         if (found[field] !== undefined) continue;
         const exact = EXACT_MATCH_FIELDS.has(field);
@@ -995,14 +1003,14 @@ function extractProducts(rows, fullText){
 
 // TENTATIVA 1 — layout de colunas detectado pelo cabeçalho
 function parseProductsByColumns(rows, header){
-  const products = [];
-  // Em NF-e com múltiplas folhas, cada página costuma repetir tanto o
-  // cabeçalho da tabela de produtos quanto trechos de rodapé (cálculo de
-  // impostos, dados adicionais) ANTES do fim real da lista de produtos —
-  // ou seja, a tabela "sai e volta a entrar" ao longo do documento. Por
-  // isso, em vez de parar no primeiro marcador de rodapé encontrado,
-  // controla-se um estado: sai da tabela ao ver um rodapé, e volta a
-  // entrar quando o cabeçalho de colunas se repete numa página seguinte.
+  // Passagem 1: percorre as linhas da tabela (mesmo filtro de
+  // ruído/rodapé/paginação de sempre) e monta uma célula por linha, sem
+  // decidir ainda a qual produto cada fragmento pertence — isso é
+  // necessário porque alguns layouts (ex.: Nilko) quebram um único
+  // produto em VÁRIAS linhas de forma pouco previsível: a descrição
+  // pode começar numa linha ANTES da linha com os números, e o próprio
+  // código pode vir partido (metade antes dos números, metade depois).
+  const candidatos = [];
   let inTable = true;
   for (let i = header.headerRowIndex + 1; i < rows.length; i++){
     const row = rows[i];
@@ -1029,6 +1037,11 @@ function parseProductsByColumns(rows, header){
     // ignora o título da seção e o cabeçalho de colunas quando ele se
     // repete em páginas seguintes (NF-e com mais de uma folha).
     if (looksLikeTableNoise(row.text)) continue;
+
+    // ignora linhas que são só um número de item solto (ex.: "24"),
+    // comuns em layouts que numeram cada linha da nota internamente —
+    // não têm nenhuma informação de produto, só ruído.
+    if (/^\d{1,4}$/.test(row.text.trim())) continue;
 
     const cells = {};
     for (const col of header.columns){
@@ -1082,27 +1095,10 @@ function parseProductsByColumns(rows, header){
       referencia = "";
     }
 
-    // uma linha de produto real de NF-e sempre tem código, ou então
-    // descrição + quantidade válida juntos. Uma linha só com descrição
-    // solta (sem código e sem quantidade) normalmente é a CONTINUAÇÃO da
-    // descrição do produto anterior — algumas DANFEs quebram a descrição
-    // em duas linhas visuais quando ela é longa (ex.: "PORTA MAPAS DIAN
-    // DIR BL" na primeira linha e "ACK TITAN" na linha seguinte). Nesse
-    // caso, em vez de descartar, anexa-se o texto ao produto anterior
-    // para não perder parte da descrição.
-    if (!referencia && !(descricao && quantidade !== null)){
-      if (descricao && products.length){
-        const prev = products[products.length - 1];
-        prev.descricao = (prev.descricao ? prev.descricao + " " : "") + descricao;
-      }
-      continue;
-    }
+    if (!referencia && !descricao && quantidade === null) continue;
 
-    products.push({
-      referencia,
-      descricao,
-      unidade,
-      quantidade,
+    candidatos.push({
+      referencia, descricao, quantidade, unidade,
       ncm: (cells.ncm || "").trim(),
       cfop: (cells.cfop || "").trim(),
       ean: (cells.ean || "").trim(),
@@ -1110,9 +1106,111 @@ function parseProductsByColumns(rows, header){
       vlTotal: parseBRNumber(cells.vlTotal),
       rawLine: row.text,
       viaOCR: !!row.ocr,
+      isCore: quantidade !== null,
     });
   }
-  return products;
+
+  // Passagem 2: cada linha com quantidade válida ("âncora"/núcleo) vira
+  // um produto. As demais linhas (só fragmento de código e/ou descrição,
+  // sem quantidade) precisam ser atribuídas ao produto certo. A regra
+  // observada neste tipo de layout (ex.: Nilko): uma linha "lidera" o
+  // núcleo seguinte quando está colada nele — direto antes do núcleo, ou
+  // direto antes de um fragmento de código que já lidera aquele núcleo
+  // (só um salto, não encadeia indefinidamente, para não puxar por
+  // engano uma linha que na verdade é o final do produto anterior).
+  // Qualquer linha que não se encaixe nessa regra vai para o final
+  // (sufixo) do núcleo anterior mais próximo, como já era feito antes.
+  const coreIdx = [];
+  candidatos.forEach((c, i) => { if (c.isCore) coreIdx.push(i); });
+  if (!coreIdx.length) return [];
+
+  const forwardTarget = new Array(candidatos.length).fill(null);
+  for (let i = candidatos.length - 2; i >= 0; i--){
+    if (candidatos[i].isCore) continue;
+    const cand = candidatos[i];
+    const hasRef = !!cand.referencia;
+    const hasDesc = !!cand.descricao;
+    const next = candidatos[i + 1];
+    if (next && next.isCore){
+      if (hasRef){
+        // fragmento de código colado direto antes do núcleo: sempre
+        // pertence a ele (não faz sentido um pedaço de código "sobrar"
+        // de um produto anterior).
+        forwardTarget[i] = i + 1;
+      } else if (hasDesc && !next.descricao){
+        forwardTarget[i] = i + 1;
+      } else if (hasDesc && next.descricao && /^[A-Za-zÀ-ú0-9._-]{2,20}\s*\|/.test(next.descricao)){
+        // a "descrição" do núcleo, quando existe, às vezes é só uma
+        // listagem de códigos de referência coladas (ex.: "I04117019001A
+        // | 4901795V000 | 5000328 |"), não um nome de produto de
+        // verdade — nesse caso a linha anterior ainda é o nome líder de
+        // verdade e deve ser tratada como início do produto seguinte.
+        // linha só de descrição colada direto antes do núcleo: só conta
+        // como início do PRÓXIMO produto se aquele núcleo ainda não tiver
+        // nenhuma descrição própria (layout tipo Nilko, onde o nome vem
+        // antes dos números). Se o núcleo já tem descrição própria
+        // (layout mais comum, tipo LinkPlas), essa linha continua sendo
+        // tratada como final do produto ANTERIOR — do contrário uma
+        // continuação de página (ex.: "V D) NOIR" completando "BAC HJD
+        // DIANTEIRO LD (A") seria roubada para o produto seguinte.
+        forwardTarget[i] = i + 1;
+      }
+    } else if (
+      hasDesc && !hasRef && next && !next.isCore &&
+      forwardTarget[i + 1] !== null && next.referencia && !next.descricao
+    ){
+      forwardTarget[i] = forwardTarget[i + 1];
+    }
+  }
+
+  const products = coreIdx.map((idx) => {
+    const c = candidatos[idx];
+    return {
+      _leadCodigo: [], _leadDesc: [],
+      referencia: c.referencia, descricao: c.descricao,
+      _trailCodigo: [], _trailDesc: [],
+      quantidade: c.quantidade, unidade: c.unidade,
+      ncm: c.ncm, cfop: c.cfop, ean: c.ean,
+      vlUnit: c.vlUnit, vlTotal: c.vlTotal,
+      rawLine: c.rawLine, viaOCR: c.viaOCR,
+    };
+  });
+
+  for (let i = 0; i < candidatos.length; i++){
+    if (candidatos[i].isCore) continue;
+    const cand = candidatos[i];
+    if (!cand.referencia && !cand.descricao) continue;
+
+    if (forwardTarget[i] !== null){
+      const prod = products[coreIdx.indexOf(forwardTarget[i])];
+      if (cand.referencia) prod._leadCodigo.push(cand.referencia);
+      if (cand.descricao) prod._leadDesc.push(cand.descricao);
+      continue;
+    }
+
+    let prevCoreCandIdx = -1;
+    for (let p = i - 1; p >= 0; p--){ if (candidatos[p].isCore){ prevCoreCandIdx = p; break; } }
+    if (prevCoreCandIdx === -1) continue; // nada antes para anexar — descarta
+
+    const prod = products[coreIdx.indexOf(prevCoreCandIdx)];
+    if (cand.referencia) prod._trailCodigo.push(cand.referencia);
+    if (cand.descricao) prod._trailDesc.push(cand.descricao);
+  }
+
+  return products.map((p) => {
+    // fragmentos de código são colados sem espaço (são a mesma
+    // referência partida em pedaços, ex.: "NK000006-" + "C070"), mas
+    // fragmentos de descrição são frases e levam espaço entre si.
+    const referencia = [...p._leadCodigo, p.referencia, ...p._trailCodigo].filter(Boolean).join("");
+    const descricao = [...p._leadDesc, p.descricao, ...p._trailDesc].filter(Boolean).join(" ").trim();
+    return {
+      referencia, descricao,
+      unidade: p.unidade, quantidade: p.quantidade,
+      ncm: p.ncm, cfop: p.cfop, ean: p.ean,
+      vlUnit: p.vlUnit, vlTotal: p.vlTotal,
+      rawLine: p.rawLine, viaOCR: p.viaOCR,
+    };
+  });
 }
 
 // TENTATIVA 2 — heurística sem coordenadas (fallback). Procura, em cada
@@ -1196,6 +1294,13 @@ function parseBRNumber(str){
   if (token.includes(",")){
     // formato BR: ponto = milhar, vírgula = decimal
     token = token.replace(/\./g, "").replace(",", ".");
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(token)){
+    // número no padrão de milhar (ex.: "1.000", "51.372") mas SEM vírgula
+    // decimal — no formato brasileiro isso é sempre separador de milhar
+    // (mil, cinquenta e um mil e trezentos e setenta e dois...), nunca
+    // um valor decimal como "1,0". Sem essa regra, "1.000" (mil peças)
+    // seria lido como "1" (uma peça).
+    token = token.replace(/\./g, "");
   }
   const val = parseFloat(token);
   return isNaN(val) ? null : val;
@@ -1396,6 +1501,7 @@ function consolidateProducts(products){
 function renderNotesList(){
   const panel = document.getElementById("notesPanel");
   const list = document.getElementById("notesList");
+  const btnGuardarErros = document.getElementById("btnGuardarErros");
   list.innerHTML = "";
 
   if (!state.notes.length){
@@ -1403,13 +1509,24 @@ function renderNotesList(){
     return;
   }
 
-  state.notes.forEach((nota) => {
+  const temErro = state.notes.some((n) => n.erro);
+  btnGuardarErros.style.display = temErro ? "inline-block" : "none";
+
+  state.notes.forEach((nota, idx) => {
     const div = document.createElement("div");
     div.className = "note-item" + (nota.erro ? " note-error" : "");
 
+    const btnReportar = nota.file
+      ? `<button class="btn-ghost" data-report-idx="${idx}" type="button"
+           style="font-size:0.68rem; padding:3px 8px; margin-left:8px;"
+           title="Marcar esta nota como incorreta e enviar o PDF para revisão">
+           &#9888; Reportar erro
+         </button>`
+      : "";
+
     if (nota.erro){
       div.innerHTML = `
-        <span class="note-file">${escapeHTML(nota.fileName)}</span>
+        <span class="note-file">${escapeHTML(nota.fileName)}${btnReportar}</span>
         <span class="note-error-msg">${escapeHTML(nota.errorMsg || "Não foi possível processar esta nota.")}</span>
       `;
     } else {
@@ -1417,13 +1534,17 @@ function renderNotesList(){
       const numero = info.numero ? `Nº ${escapeHTML(info.numero)}` : "Nº não identificado";
       const fornecedor = info.razaoSocial ? escapeHTML(info.razaoSocial) : "";
       div.innerHTML = `
-        <span class="note-file">${escapeHTML(nota.fileName)}${nota.usouOCR ? ' <span class="badge-warn" style="background:#eef5fb;color:var(--primary-dark);border-color:#cfe0ee;" title="Esta nota não tinha texto extraível e foi lida via OCR">&#128269; Lida via OCR</span>' : ""}</span>
+        <span class="note-file">${escapeHTML(nota.fileName)}${nota.usouOCR ? ' <span class="badge-warn" style="background:#eef5fb;color:var(--primary-dark);border-color:#cfe0ee;" title="Esta nota não tinha texto extraível e foi lida via OCR">&#128269; Lida via OCR</span>' : ""}${btnReportar}</span>
         <span class="note-num">${numero}</span>
         ${fornecedor ? `<span class="note-fornecedor">${fornecedor}</span>` : ""}
         <span class="note-linhas">${nota.linhas} linha(s)</span>
       `;
     }
     list.appendChild(div);
+  });
+
+  list.querySelectorAll("[data-report-idx]").forEach((btn) => {
+    btn.addEventListener("click", () => reportarErroManual(Number(btn.dataset.reportIdx)));
   });
 
   panel.classList.add("visible");
@@ -1753,6 +1874,158 @@ const RECEBEMAIS_CONFIG = {
   colecaoPendentes: "pendentes",
 };
 
+/* =====================================================================
+   GUARDAR NOTAS COM ERRO (Firebase Storage + Firestore)
+   Coleta o PDF original das notas que não puderam ser processadas e
+   sobe pro Firebase, junto com a mensagem de erro e a data — pra dar
+   pra revisar e corrigir o parser depois, fora do momento da conferência
+   no galpão.
+   ===================================================================== */
+// Sobe um único PDF (com sua mensagem de erro/observação) para o
+// Configuração do Cloudinary (armazenamento gratuito dos PDFs com erro,
+// separado do Firestore — usado só para o arquivo em si; os metadados
+// como nome, data e motivo do erro continuam no Firestore, que já
+// funciona bem para isso e não sofre com o tamanho dos arquivos).
+const CLOUDINARY_CLOUD_NAME = "dlry7nlb";
+const CLOUDINARY_UPLOAD_PRESET = "notas_com_erro";
+const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`;
+
+// Sobe o PDF pro Cloudinary (upload "unsigned", direto do navegador, sem
+// precisar de servidor nem de credencial secreta exposta no código) e
+// grava os metadados (nome, motivo do erro, link do PDF) no Firestore.
+async function _uploadNotaComErro(file, errorMsg){
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+
+  const resposta = await fetch(CLOUDINARY_UPLOAD_URL, { method: "POST", body: formData });
+  if (!resposta.ok){
+    const detalhe = await resposta.text().catch(() => "");
+    throw new Error("Falha ao enviar o PDF para o Cloudinary" + (detalhe ? ": " + detalhe.slice(0, 200) : "."));
+  }
+  const dados = await resposta.json();
+
+  if (!window.__firebaseApp){
+    window.__firebaseApp = firebase.initializeApp(RECEBEMAIS_CONFIG.firebaseConfig);
+  }
+  const db = firebase.firestore();
+
+  await db.collection("notas_com_erro").add({
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    fileName: file.name,
+    errorMsg: errorMsg || "",
+    pdfUrl: dados.secure_url,
+    cloudinaryPublicId: dados.public_id,
+  });
+}
+
+// Monta uma mensagem de erro mais útil para o envio/reporte de notas com
+// erro, distinguindo o caso comum de "rede bloqueada" (ex.: testando
+// dentro do preview do Claude, que não permite chamadas externas) do
+// resto — sempre mostrando o motivo real quando disponível, em vez de
+// uma mensagem genérica que esconde a causa.
+function _mensagemErroEnvio(err, acao){
+  const msg = (err && err.message) || "";
+  if (/failed to fetch|networkerror|load failed/i.test(msg)){
+    return (
+      `Não foi possível ${acao}: a chamada de rede para o Cloudinary ou o Firebase foi bloqueada. ` +
+      "Se estiver testando dentro do preview do Claude, abra este arquivo direto no navegador " +
+      "(ou hospedado no GitHub Pages) e tente de novo — o preview bloqueia conexões externas."
+    );
+  }
+  if (msg) return `Não foi possível ${acao}: ${msg}`;
+  return `Não foi possível ${acao}. Verifique sua conexão e tente novamente.`;
+}
+
+function _checaFirebasePronto(){
+  if (!RECEBEMAIS_CONFIG.firebaseConfig){
+    showError("O envio para o Firebase ainda não está configurado neste arquivo.");
+    return false;
+  }
+  if (typeof firebase === "undefined"){
+    showError(
+      "A biblioteca do Firebase não carregou neste ambiente (bloqueio de rede ou script externo). " +
+      "Abra este arquivo direto no navegador (ou hospedado no GitHub Pages) em vez de usar o preview do Claude, e tente de novo."
+    );
+    return false;
+  }
+  return true;
+}
+
+async function guardarNotasComErro(){
+  const notasComErro = state.notes.filter((n) => n.erro && n.file);
+  if (!notasComErro.length){
+    showError("Não há notas com erro para guardar.");
+    return;
+  }
+  if (!_checaFirebasePronto()) return;
+
+  const btn = document.getElementById("btnGuardarErros");
+  if (btn) btn.disabled = true;
+
+  try{
+    // evita subir o mesmo arquivo duas vezes quando um PDF gerou mais de
+    // uma "nota com erro" internamente (raro, mas possível)
+    const arquivosUnicos = Array.from(new Set(notasComErro.map((n) => n.file)));
+
+    let enviados = 0;
+    for (let i = 0; i < arquivosUnicos.length; i++){
+      const file = arquivosUnicos[i];
+      const nota = notasComErro.find((n) => n.file === file);
+      setProcessing(
+        true,
+        "Guardando notas com erro...",
+        `Enviando ${i + 1}/${arquivosUnicos.length}: ${file.name}`
+      );
+      await _uploadNotaComErro(file, nota.errorMsg);
+      enviados++;
+    }
+
+    setProcessing(false);
+    showSuccess(
+      enviados > 1
+        ? `${enviados} notas com erro guardadas com sucesso.`
+        : "Nota com erro guardada com sucesso."
+    );
+  } catch (err){
+    console.error(err);
+    setProcessing(false);
+    showError(_mensagemErroEnvio(err, "guardar as notas com erro"));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Reporte manual: mesmo quando o app não detectou nenhum erro técnico
+// (a nota "processou"), os dados extraídos podem estar errados (ex.:
+// quantidade errada, referência incompleta). Esse botão aparece em TODA
+// nota da lista — inclusive as que deram certo — para o usuário marcar
+// "essa aqui saiu errada" e mandar o PDF original para revisão depois,
+// com uma observação opcional sobre o que notou de errado.
+async function reportarErroManual(uidNota){
+  const nota = state.notes[uidNota];
+  if (!nota || !nota.file){
+    showError("Não foi possível localizar o arquivo original desta nota.");
+    return;
+  }
+  if (!_checaFirebasePronto()) return;
+
+  const obs = prompt("O que saiu errado nessa nota? (opcional, ajuda na hora de corrigir)", "");
+  if (obs === null) return; // usuário cancelou
+
+  try{
+    setProcessing(true, "Reportando nota...", `Enviando ${nota.fileName} para revisão.`);
+    const msg = obs.trim() || "Reportado manualmente pelo usuário (dados extraídos parecem incorretos).";
+    await _uploadNotaComErro(nota.file, msg);
+    setProcessing(false);
+    showSuccess("Erro reportado com sucesso.");
+  } catch (err){
+    console.error(err);
+    setProcessing(false);
+    showError(_mensagemErroEnvio(err, "reportar esta nota"));
+  }
+}
+
 async function enviarParaRecebeMais(){
   const notasOk = state.notes.filter((n) => !n.erro && n.products && n.products.length);
   if (!notasOk.length || !state.consolidated.length){
@@ -1940,6 +2213,7 @@ function resetApp(){
   document.getElementById("searchInput").value = "";
   document.getElementById("resultsSection").classList.remove("visible");
   document.getElementById("notesPanel").classList.remove("visible");
+  document.getElementById("btnGuardarErros").style.display = "none";
   clearMessages();
 }
 
@@ -1992,6 +2266,7 @@ function init(){
   setupSort();
   document.getElementById("btnExportExcel").addEventListener("click", exportExcel);
   document.getElementById("btnEnviarRecebeMais").addEventListener("click", enviarParaRecebeMais);
+  document.getElementById("btnGuardarErros").addEventListener("click", guardarNotasComErro);
   document.getElementById("btnNovaNota").addEventListener("click", resetApp);
 }
 init();
