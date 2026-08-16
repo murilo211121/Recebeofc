@@ -8,7 +8,7 @@
 
 const CACHE_NAME = "recebemais-cache-v1";
 const ARQUIVOS_PARA_CACHE = [
-  "./recebemais.html",
+  "./index.html",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
