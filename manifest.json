@@ -1,0 +1,25 @@
+{
+  "name": "RecebeMais",
+  "short_name": "RecebeMais",
+  "description": "Controle de recebimento e conferência às cegas de cargas",
+  "start_url": "./recebemais.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0e15",
+  "theme_color": "#0a0e15",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
