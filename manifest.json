@@ -2,7 +2,7 @@
   "name": "RecebeMais",
   "short_name": "RecebeMais",
   "description": "Controle de recebimento e conferência às cegas de cargas",
-  "start_url": "./recebemais.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
